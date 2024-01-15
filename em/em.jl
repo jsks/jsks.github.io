@@ -1,108 +1,111 @@
-using Distributions
+using Distributions, Hungarian, LinearAlgebra, StatsBase
 
-function rsimplex(n)
-    x = rand(n)
-    x / sum(x)
+
+function initialize_parameters(K, D)
+    π = rand(K)
+    π /= sum(π)
+    θ = 0.5 * ones(K, D) + 0.1 * rand(K, D)  # Avoiding extreme values
+    return π, θ
 end
 
-function mvbern(y, θ)
-    prod(pdf(Bernoulli(p), y[i]) for (i, p) in enumerate(θ))
+function logsumexp(a)
+    m = maximum(a)
+    return m + log(sum(exp.(a .- m)))
 end
 
-function marginal_pmf(y, θ, π)
-    sum(π[k] * mvbern(y, θ[:, k]) for k in 1:length(π))
-end
+function e_step(X, π, θ)
+    N, D = size(X)
+    K = length(π)
+    γ = zeros(N, K)
 
-function log_lik(Y, θ, π)
-    sum(log(marginal_pmf(Y[:, i], θ, π)) for i in 1:size(Y, 2))
-end
-
-function E_step(Y, θ, π)
-    γ = zeros(Float64, size(y, 2), length(π))
-
-    for k in 1:length(π)
-        γ[:, k] = π[k] .* [mvbern(Y[:, i], θ[:, k]) for i in 1:size(Y, 2)]
-    end
-
-    γ ./ sum(γ, dims=2)
-end
-
-User
-Here is my complete code implementing a BMM estimated using the EM algorithm.
-
-```julia
-using Distributions
-
-function rsimplex(n)
-    x = rand(n)
-    x / sum(x)
-end
-
-function mvbern(y, θ)
-    prod(pdf(Bernoulli(p), y[i]) for (i, p) in enumerate(θ))
-end
-
-function marginal_pmf(y, θ, π)
-    sum(π[k] * mvbern(y, θ[:, k]) for k in 1:length(π))
-end
-
-function log_lik(Y, θ, π)
-    sum(log(marginal_pmf(Y[:, i], θ, π)) for i in 1:size(Y, 2))
-end
-
-function E_step(Y, θ, π)
-    γ = zeros(Float64, size(y, 2), length(π))
-
-    for k in 1:length(π)
-        γ[:, k] = π[k] .* [mvbern(Y[:, i], θ[:, k]) for i in 1:size(Y, 2)]
-    end
-
-    γ ./ sum(γ, dims=2)
-end
-
-function M_step(Y, γ)
-    cluster_sums = sum(γ, dims = 1)
-
-    θ = Y * γ
-    for k in 1:size(θ, 2)
-        θ[:, k] /=  cluster_sums[k]
-    end
-
-    π = cluster_probs / size(Y, 2)
-
-    return (θ, π)
-end
-
-function EM(Y, K; max_iter=1e4, tol=1e-6)
-    # Randomly initialize our parameters
-    π = rsimplex(K)
-    θ = rand(size(Y, 1), K)
-
-    ll_old = ll_new = -Inf
-    for i in 1:max_iter
-        if i % 10 == 10
-            print("Iteration: $(i)", i)
+    for i in 1:N
+        for k in 1:K
+            log_θ = log.(max.(eps(), θ[k, :]))
+            log_1mθ = log.(max.(eps(), 1 .- θ[k, :]))
+            γ[i, k] = log(π[k]) + sum(X[i, :] .* log_θ + (1 .- X[i, :]) .* log_1mθ)
         end
-
-        γ = E_step(Y, θ, π)
-        θ, π = M_step(Y, γ)
-
-        ll_new = log_lik(Y, θ, π)
-        if abs(ll_new - ll_old) < tol
-            break
-        end
-
-        ll_old = ll_new
+        γ[i, :] = exp.(γ[i, :] .- logsumexp(γ[i, :]))
     end
 
-    return (θ, π, γ, ll_new)
+    return γ
 end
 
-N = 1_000
-D = 3
-K = 2
+function m_step(X, γ)
+    N, D = size(X)
+    K = size(γ, 2)
 
-pi = rand(K)
-normalize!(pi, 1)
+    Nk = sum(γ, dims=1)
+    π = Nk ./ N
+    θ = (γ' * X) ./ Nk'
+    θ = clamp.(θ, eps(), 1-eps())  # Clipping to avoid extreme values
 
-theta = rand(D, K)
+    return π[:], θ
+end
+
+function bernoulli_mixture_em(X, K; max_iter=10000, tol=1e-6)
+    N, D = size(X)
+    π, θ = initialize_parameters(K, D)
+
+    prev_log_likelihood = -Inf
+    for iter in 1:max_iter
+        γ = e_step(X, π, θ)
+        π, θ = m_step(X, γ)
+
+        log_likelihood = sum([log(sum([π[k] * prod(θ[k, :] .^ X[i, :] .* (1 .- θ[k, :]) .^ (1 .- X[i, :]))
+                                      for k in 1:K]))
+                             for i in 1:N])
+        println("Iteration $iter: Log Likelihood = $log_likelihood")
+
+        if abs(log_likelihood - prev_log_likelihood) < tol
+            return θ, π, γ
+        end
+        prev_log_likelihood = log_likelihood
+    end
+end
+
+function relabel(γ, labels)
+    clusters = map(argmax, eachrow(γ))
+
+    cm = zeros(Int, size(γ, 2), maximum(labels) + 1)
+    for i in 1:length(clusters)
+        cm[clusters[i], labels[i] + 1] += 1
+    end
+
+    assignment, _ = hungarian(maximum(cm) .- cm)
+    assignment[clusters] .- 1
+end
+
+
+# Set parameters
+N = 1_000  # Number of data points
+D = 784   # Number of features (28x28 pixels)
+K = 10    # Number of mixture components
+
+# Step 1: Generate mixture probabilities
+Random.seed!(123)  # For reproducibility
+π = rand(K)
+π /= sum(π)
+
+# Step 2: Generate Bernoulli parameters for each mixture component
+θ = rand(K, D)
+
+# Step 3: Simulate data points and save the true cluster labels
+data = zeros(N, D)
+true_labels = zeros(Int, N)  # Array to store the true cluster labels
+
+for i in 1:N
+    # Choose a mixture component for each data point
+    random_value = rand()
+    k = findfirst(cumsum(π) .>= random_value)
+    true_labels[i] = k  # Save the true cluster label
+
+    # Generate data based on the Bernoulli parameters of the chosen component
+    for j in 1:D
+        data[i, j] = rand() < θ[k, j] ? 1.0 : 0.0
+    end
+end
+
+
+fit = bernoulli_mixture_em(data, K)
+
+mean(relabel(fit[3], true_labels) .== true_labels)
