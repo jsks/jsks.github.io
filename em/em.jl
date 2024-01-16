@@ -1,6 +1,5 @@
 using Distributions, Hungarian, LinearAlgebra, StatsBase
 
-
 function initialize_parameters(K, D)
     π = rand(K)
     π /= sum(π)
@@ -56,7 +55,7 @@ function bernoulli_mixture_em(X, K; max_iter=10000, tol=1e-6)
                              for i in 1:N])
         println("Iteration $iter: Log Likelihood = $log_likelihood")
 
-        if abs(log_likelihood - prev_log_likelihood) < tol
+        if iter == 30 || abs(log_likelihood - prev_log_likelihood) < tol
             return θ, π, γ
         end
         prev_log_likelihood = log_likelihood
@@ -77,7 +76,7 @@ end
 
 
 # Set parameters
-N = 1_000  # Number of data points
+N = 10_000  # Number of data points
 D = 784   # Number of features (28x28 pixels)
 K = 10    # Number of mixture components
 
@@ -105,7 +104,5 @@ for i in 1:N
     end
 end
 
-
 fit = bernoulli_mixture_em(data, K)
-
 mean(relabel(fit[3], true_labels) .== true_labels)
