@@ -1,12 +1,3 @@
----
-title: MNIST
----
-
-\begin{equation}
-\mathcal{L}(\pi, \theta | X) = \prod_{i=1}^N \left( \sum_{k=1}^K \pi_k \prod_{j=1}^D \theta_{kj}^{X_{ij}} (1 - \theta)^{(1 - X_{ij})} \right)
-\end{equation}
-
-```{julia}
 using Hungarian, LinearAlgebra, LogExpFunctions, Octavian, Printf, StatsBase
 
 function log_mvbernoulli_pmf(y, lp, lp1m)
@@ -23,12 +14,12 @@ function log_lik(Y, θ, π)
     lp = log.(θ)
     lp1m = log.(1 .- θ)
 
-    aux = Threads.Atomic{Float64}(0.0)
-    Threads.@threads for i in 1:size(Y, 2)
-        Threads.atomic_add!(aux, log_marginal_pmf(view(Y, :, i), lp, lp1m, lpi))
-    end
+    #aux = Threads.Atomic{Float64}(0.0)
+    #Threads.@threads for i in 1:size(Y, 2)
+        #Threads.atomic_add!(aux, log_marginal_pmf(view(Y, :, i), lp, lp1m, lpi))
+    #end
 
-    return aux[]
+    sum(log_marginal_pmf(view(Y, :, i), lp, lp1m, lpi) for i in 1:size(Y, 2))
 end
 
 function E_step!(Y, γ, θ, π)
@@ -42,27 +33,24 @@ function E_step!(Y, γ, θ, π)
         denominator = logsumexp(log_resps)
 
         for k in 1:length(π)
-            @inbounds γ[i, k] = exp(log_resps[k] - denominator)
+            γ[i, k] = exp(log_resps[k] - denominator)
         end
     end
 end
 
 function M_step!(Y, γ, θ, π)
-    cluster_sums = vec(sum(γ, dims=1)) .+ eps()
+    cluster_sums = vec(sum(γ, dims=1))
 
     π .= cluster_sums ./ size(Y, 2)
 
     matmul!(θ, Y, γ)
-    @views for k in 1:size(θ, 2)
-        θ[:, k] ./=  cluster_sums[k]
-    end
+    θ ./= cluster_sums'
     clamp!(θ, eps(), 1 - eps())
 end
 
 function EM(Y, K; max_iter=1_000, tol=1e-6)
     π = fill(1/K, K)
     θ = rand(Float64, size(Y, 1), K)
-    #θ = 0.5 * ones(size(Y, 1), K) + 0.1 * rand(size(Y, 1), K)
     γ = zeros(Float64, size(Y, 2), K)
 
     ll_old = ll_new = ll_diff = -Inf
@@ -94,10 +82,6 @@ function relabel(γ, labels)
     assignment, _ = hungarian(maximum(cm) .- cm)
     assignment[clusters] .- 1
 end
-```
-
-```{julia}
-using MLDatasets
 
 pixels, labels = MNIST(split=:train)[:]
 binned_pixels = pixels .> 0.5
@@ -107,5 +91,3 @@ fit = EM(model_input, 10)
 
 Z_hat = relabel(fit[3], labels)
 mean(Z_hat .== labels)
-
-```
