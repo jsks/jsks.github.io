@@ -1,6 +1,9 @@
 X = model_input'
 Y = model_input
 
+N, D = size(X)
+K = 10
+
 π = fill(1/K, K)
 θ = rand(Float64, size(Y, 1), K)
 γ = zeros(Float64, size(Y, 2), K)

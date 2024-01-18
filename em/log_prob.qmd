@@ -1,0 +1,152 @@
+---
+title: MNIST
+---
+
+\begin{equation}
+\mathcal{L}(\pi, \theta | X) = \prod_{i=1}^N \left( \sum_{k=1}^K \pi_k \prod_{j=1}^D \theta_{kj}^{X_{ij}} (1 - \theta)^{(1 - X_{ij})} \right)
+\end{equation}
+
+```{julia}
+using MLDatasets
+
+pixels, labels = MNIST(split=:train)[:]
+binned_pixels = pixels .> 0.5
+
+```
+
+```{julia}
+using Hungarian, LinearAlgebra, LogExpFunctions, Octavian, StatsBase
+
+function log_mvbernoulli_pmf(y, lp, lp1m)
+    sum((pixel == 1) ? lp[i] : lp1m[i] for (i, pixel) in enumerate(y))
+end
+
+function log_marginal_pmf(y, lp, lp1m, lpi)
+    logsumexp(lpi[k] + log_mvbernoulli_pmf(y, view(lp, :, k), view(lp1m, :, k))
+              for k in 1:length(π))
+end
+
+function log_lik(Y, θ, π)
+    lpi = log.(π)
+    lp = log.(θ)
+    lp1m = log.(1 .- θ)
+
+    aux = Threads.Atomic{Float64}(0.0)
+    Threads.@threads for i in 1:size(Y, 2)
+        Threads.atomic_add!(aux, log_marginal_pmf(view(Y, :, i), lp, lp1m, lpi))
+    end
+
+    return aux[]
+end
+
+function E_step!(Y, γ, θ, π)
+    lpi = log.(π)
+    lp = log.(θ)
+    lp1m = log.(1 .- θ)
+
+    Threads.@threads for i in 1:size(Y, 2)
+        @views log_resps = [lpi[k] + log_mvbernoulli_pmf(Y[:, i], lp[:, k], lp1m[:, k])
+                            for k in 1:length(π)]
+        denominator = logsumexp(log_resps)
+
+        for k in 1:length(π)
+            @inbounds γ[i, k] = exp(log_resps[k] - denominator)
+        end
+    end
+end
+
+function M_step!(Y, γ, θ, π)
+    cluster_sums = vec(sum(γ, dims=1)) .+ 1e-10
+
+    π .= cluster_sums ./ size(Y, 2)
+
+    matmul!(θ, Y, γ)
+    @views for k in 1:size(θ, 2)
+        θ[:, k] ./=  cluster_sums[k]
+    end
+    clamp!(θ, 1e-10, 1 - 1e-10)
+end
+
+function EM(Y, K; max_iter=1_000, tol=1e-5)
+    π = fill(1/K, K)
+    θ = rand(Float32, size(Y, 1), K)
+    γ = zeros(Float32, size(Y, 2), K)
+
+    ll_old = ll_new = ll_diff = -Inf
+    for i in 1:max_iter
+        E_step!(Y, γ, θ, π)
+        M_step!(Y, γ, θ, π)
+
+        if i % 5 != 0
+            continue
+        end
+
+        ll_new = log_lik(Y, θ, π)
+        ll_diff = abs(ll_new - ll_old)
+
+        if i % 10 == 0
+            println("Iteration $(i): $(ll_diff)")
+        end
+
+        if ll_diff < tol
+            return (θ, π, γ, ll_new)
+        end
+
+        ll_old = ll_new
+    end
+
+    error("Model failed to converge")
+end
+
+function relabel(γ, labels)
+    clusters = map(argmax, eachrow(γ))
+
+    cm = zeros(Int, size(γ, 2), maximum(labels) + 1)
+    for i in 1:length(clusters)
+        cm[clusters[i], labels[i] + 1] += 1
+    end
+
+    assignment, _ = hungarian(maximum(cm) .- cm)
+    assignment[clusters] .- 1
+end
+```
+
+```{julia}
+###
+# Simulate dataset
+using Distributions
+
+N = 1_000
+D = 10
+K = 3
+
+function rsimplex(n)
+    x = rand(n)
+    x / sum(x)
+end
+
+π = rsimplex(K)
+θ = rand(D, K)
+
+Z = sample(1:K, Weights(π), N)
+Y = zeros(Float32, D, N)
+
+for i in 1:N
+    for j in 1:D
+        Y[j, i] = rand(Bernoulli(θ[j, Z[i]]))
+    end
+end
+
+fit = EM(Y, K)
+mean(relabel(fit[3], Z) .== Z)
+
+```
+
+```{julia}
+model_input = reshape(binned_pixels, (28*28, 60_000))
+fit = EM(model_input, 10)
+
+Z_hat = relabel(fit[3], labels)
+mean(Z_hat .== labels)
+
+```
