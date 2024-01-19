@@ -1,22 +1,20 @@
 using Distributions, LinearAlgebra, LogExpFunctions
 
+function gaussians(μ, Σ)
+    @views [MvNormal(μ[:, i], Σ[:, :, i]) for i in 1:size(μ, 2)]
+end
+
 function log_lik(Y, π, μ, Σ)
-    @views d = MixtureModel(map(i -> MvNormal(μ[:, i], Σ[:, :, i]), 1:length(π)), π)
-
-    aux = Threads.Atomic{Float64}(0.0)
-    Threads.@threads for i in 1:size(Y, 2)
-        Threads.atomic_add!(aux, logpdf(d, view(Y, :, i)))
-    end
-
-    return aux[]
+    d = MixtureModel(gaussians(μ, Σ), π)
+    sum(logpdf(d, y) for y in eachcol(Y))
 end
 
 function E_step!(Y, γ, π, μ, Σ)
+    dists = gaussians(μ, Σ)
     lpi = log.(π)
-    @views dist = [MvNormal(μ[:, k], Σ[:, :, k]) for k in 1:length(π)]
 
-    Threads.@threads for i in 1:size(Y, 2)
-        lp = [lpi[k] + logpdf(dist[k], view(Y, :, i)) for k in 1:length(π)]
+    for i in 1:size(Y, 2)
+        lp = [lpi[k] + logpdf(dists[k], view(Y, :, i)) for k in 1:length(π)]
         denominator = logsumexp(lp)
 
         for k in 1:length(π)
@@ -66,51 +64,44 @@ function EM(Y, K; max_iter=10_000, tol=1e-5)
     error("Model failed to converge")
 end
 
-function label_mapping(clusters, labels)
-    Dict(k => mode(labels[clusters .== k])
-         for k in 1:maximum(clusters) if k in clusters)
+function predict(Y, results)
+    dists = [MixtureModel(gaussians(μ, Σ), π) for (π, μ, Σ, _) in results]
+    [argmax(logpdf(d, y) for d in dists) - 1 for y in eachcol(Y)]
 end
 
 ###
 # Real data
-using MLDatasets
+using Base.Threads, Colors, MLDatasets, MultivariateStats, Plots
 
 pixels, labels = MNIST(split=:train)[:]
 model_input = reshape(pixels, (28*28, 60_000))
 
-fit = EM(model_input, 10)
-
-using MultivariateStats
-X = (model_input .- mean(model_input, dims=1)) ./ std(model_input, dims=1)
-pca = fit(PCA, X, maxoutdim=50)
-
-data = transform(pca, X)
-ml = EM(data[:, labels .== 8], 5)
-
-
-out = reconstruct(pca, ml[2])
-co = (out .- minimum(out, dims=1)) ./ (maximum(out, dims=1) .- minimum(out, dims=1))
-plts = [Gray.(reshape(1 .- co[:, i], 28, 28)') |> plot for i in 1:5]
-plot(plts..., layout = size(co, 2), axis = false, ticks= false)
-
-
-plot(Gray.(reshape(p, 28, 28)'))
+###
+# Dimensionality reduction
+pca = fit(PCA, model_input, maxoutdim=50)
+reduced_data = transform(pca, model_input)
 
 ###
-# Simulated data
-using CSV, DataFrames
+# Parallelized run --- one model per digit
+results = fetch.([@spawn EM(reduced_data[:, labels .== i], 4) for i in 0:9])
 
-labels = readlines("labels.txt")
-df = CSV.read("test.csv", DataFrame)
+# Plotted marginal expectations --- ie, the image of the predicted
+# 'average' digit per model
+EY = map(((π, μ, _, _),) -> reconstruct(pca, μ * π), results)
+plts = [Gray.(reshape(μ, 28, 28)') |> plot for μ in EY]
+plot(plts..., layout = length(EY), axis = false, ticks = false)
 
-labels = parse.(Int, labels)
-data = Matrix(df)
-
-fit = EM(data', 3)
-γ = fit[4]
-
-clusters = map(argmax, eachrow(γ))
-mapping = label_mapping(clusters, labels)
-Z_hat = [mapping[i] for i in clusters]
-
+###
+# Classify by finding the model with the highest log-likelihood for
+# the data
+Z_hat = predict(reduced_data, results)
 mean(Z_hat .== labels)
+
+###
+# Test predictive accuracy of our test data
+test_pixels, test_labels = MNIST(split=:test)[:]
+test_input = reshape(test_pixels, (28*28, 10_000))
+test_reduced = transform(pca, test_input)
+
+Z_test = predict(test_reduced, results)
+mean(Z_test .== test_labels)
