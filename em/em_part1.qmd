@@ -1,0 +1,15 @@
+---
+title: Expectation-Maximization Part 1
+---
+
+The expectation-maximization algorithm is a two-step iterative process
+for estimating the parameters in a latent variable model.
+
+Consider an observable random variable, $X$, with latent
+classification $Z$. We seek to estimate a vector of parameters,
+$\theta$, by maximizing the marginal log-likelihood formed by
+marginalizing over the support of $Z$.
+
+\begin{equation}
+\ell(\theta | X) = \log \left(\sum_{Z} p(X, Z)\right)
+\end{equation}
