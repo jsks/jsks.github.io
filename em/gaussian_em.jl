@@ -85,6 +85,12 @@ reduced_data = transform(pca, model_input)
 # Parallelized run --- one model per digit
 results = fetch.([@spawn EM(reduced_data[:, labels .== i], 4) for i in 0:9])
 
+digit = results[1]
+img = map(μ -> reconstruct(pca, μ), eachcol(digit[2]))
+plts = [plot(Gray.(reshape(i, 28, 28)')) for i in img]
+plot(plts..., layout = (1, 4), axis = false, ticks = false)
+
+
 # Plotted marginal expectations --- ie, the image of the predicted
 # 'average' digit per model
 EY = map(((π, μ, _, _),) -> reconstruct(pca, μ * π), results)

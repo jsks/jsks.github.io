@@ -1,15 +1,87 @@
 ---
-title: Expectation-Maximization Part 1
+title: "EM Algorithm: Part 1"
+nocite: "[@*]"
+references:
+- author:
+  - family: Bishop
+    given: Christopher
+  id: bishop2006pattern
+  issued: 2006
+  publisher: Springer
+  title: Pattern recognition and machine learning
+  type: book
+- author:
+  - family: Hastie
+    given: Trevor
+  - family: Tibshirani
+    given: Robert
+  - family: Friedman
+    given: Jerome H
+  - family: Friedman
+    given: Jerome H
+  id: hastie2009elements
+  issued: 2009
+  publisher: Springer
+  title: "The elements of statistical learning: Data mining, inference,
+    and prediction"
+  title-short: The elements of statistical learning
+  type: book
+  volume: 2
 ---
 
-The expectation-maximization algorithm is a two-step iterative process
-for estimating the parameters in a latent variable model.
+*This note is the first in a three part series on the expectation maximization algorithm.*
 
-Consider an observable random variable, $X$, with latent
-classification $Z$. We seek to estimate a vector of parameters,
-$\theta$, by maximizing the marginal log-likelihood formed by
-marginalizing over the support of $Z$.
+The expectation-maximization (EM) algorithm is a two-step iterative process for estimating the parameters in a latent variable model.
+
+Consider an observable random variable, $X$, with latent classification $Z$. We seek to estimate a vector of parameters, $\theta$, by maximizing the marginal log-likelihood formed by marginalizing over the support of $Z$.
 
 \begin{equation}
-\ell(\theta | X) = \log \left(\sum_{Z} p(X, Z)\right)
+\ell(\theta | X) = \log \left(\int p(X, Z | \theta) \; d\mu(z)\right)
 \end{equation}
+
+Even though we can decompose the joint probability function to $p(X, Z | \theta) = p(Z | \theta) p(X | Z, \theta)$, as we'll see in part 2 when discussing mixture models, this nonetheless tends to lead to an intractable maximization problem since we're marginalizing over the latent variable within the natural logarithm.
+
+Instead, we turn to iteratively maximizing the conditional expectation of the joint log-likelihood with respect to the latent variable $Z$. Put simply, we don't directly observe $Z$, so instead we form a best guess by taking the conditional expectation given our data and our current values of $\theta$, *i.e.* the E-step, and then update $\theta$ by maximizing the resulting equation, the M-step. Rinse and repeat.
+
+More formally, let the objective function be the following:
+
+\begin{equation}
+Q(\theta^{(t)}, \theta) = \mathbb{E}_{Z} \left[ \log p(X, Z | \theta) | X, \theta^{(t)} \right]
+\end{equation}
+
+Expanding out the objective function makes clear the different components.
+
+\begin{aligned}
+Q(\theta^{(t)}, \theta) & = \int  p(z | X, \theta^{(t)}) \log p(X, Z, | \theta) \; d\mu(z) \\
+& = \int p(z | X, \theta^{(t)}) \left( \log p(Z | \theta) + \log p(X | Z, \theta) \right) \; d\mu(z)
+\end{aligned}
+
+We first select some initial values for $\theta$. Then, in the E-step we calculate $p(z | X , \theta^{(t)}) \; \forall z \in S$ where $S$ is the support of $Z$. In the M-step, we update $\theta$ by maximizing the objective function.
+
+\begin{equation}
+\theta^{(t+1)} = \text{arg max}_{\theta \in \Theta} Q(\theta^{(t)}, \theta)
+\end{equation}
+
+We alternate between the E-step and M-step until some convergence statistic is satisfied, for example if $| \ell(\theta^{(t+1)} | X) - \ell(\theta^{(t)} | X) | < \epsilon$ for some $\epsilon > 0$.
+
+Note, the EM algorithm does not guarantee that we will find the global maximum for $\theta$; however, we are guaranteed to monotonically increase the marginal log-likelihood for $X$.
+
+By Jensen's Inequality, for a concave function $f(\cdot)$:
+
+\begin{equation}
+\mathbb{E} \left[ f(X) \right ] \leq f \left( \mathbb{E}X \right)
+\end{equation}
+
+Within the context of the EM algorithm multiply the marginal likelihood by $\frac{p(Z | X, \theta)}{p(Z | X, \theta)}$.
+
+\begin{aligned}
+\log p(X | \theta) & = \log \int p(X, Z | \theta) \cfrac{p(Z | X, \theta^{(t)})}{p(Z | X, \theta^{(t)})} \; d\mu(z) \\
+& = \log \mathbb{E}_Z \left[ \cfrac{p(X, Z | \theta)}{p(Z | X, \theta^{(t)})} | X, \theta^{(t)} \right] \\
+& \geq \mathbb{E}_Z \left[ \log \cfrac{p(X, Z | \theta)}{p(Z | X, \theta^{(t)})} | X, \theta^{(t)} \right] \\
+& = \mathbb{E}_Z \left[ \log p(X, Z | \theta) | X, \theta^{(t)} \right] - \mathbb{E}_Z \left[ \log p(Z | X, \theta^{(t)}) | X, \theta^{(t)} \right] \\
+& = Q(\theta^{(t)}, \theta) - \mathbb{E}_Z \left[ \log p(Z | X, \theta^{(t)}) | X, \theta^{(t)} \right]
+\end{aligned}
+
+This provides the lower bound for the marginal log likelihood of $X$. Since $\theta^{(t+1)} \geq \theta^{(t)}$ when maximizing $Q(\theta^{(t)}, \theta)$, then $\log p(X | \theta)$ will monotonically increase for each M-step as the second term will effectively be a constant after the E-step.
+
+# References
