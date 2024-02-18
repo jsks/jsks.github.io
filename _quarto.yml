@@ -1,0 +1,11 @@
+project:
+    title: Notes
+    render:
+            - "*.qmd"
+    output-dir: _output
+execute:
+    freeze: auto
+format:
+    html:
+            css: assets/style.css
+            highlight-style: atom-one
