@@ -1,0 +1,76 @@
+---
+title: "CmdStan and OCI Images"
+date: 2024-03-15
+filters:
+    - include-code-files
+---
+
+[CmdStan](https://mc-stan.org/users/interfaces/cmdstan) is a heavy dependency when building docker/OCI images. On the latest `debian:testing-slim`, it requires 1.3G of space.
+
+```shell
+root@49237339e848:~# du -h -s ~/.cmdstan
+1.3G    /root/.cmdstan
+```
+
+The typical compilation pipeline for `CmdStan` is to go from Stan -> C++ -> Executable Binary. If your Stan model can be pre-compiled as part of the image build, then you can use a [multi-stage build](https://docs.docker.com/build/building/multi-stage/) to compile the model binary and copy it into a fresh image without the CmdStan libraries.
+
+The only caveat is that we need to include any shared libraries that may be linked into the model binary. We can get a list using `ldd`. In this case I'll use the example model found in `examples/bernoulli/bernoulli.stan` in the CmdStan installation directory.
+
+```shell
+root@49237339e848:~/.cmdstan/cmdstan-2.34.1/examples/bernoulli# ldd bernoulli
+        linux-vdso.so.1 (0x00007ffc979bc000)
+        libtbb.so.2 => /root/.cmdstan/cmdstan-2.34.1/stan/lib/stan_math/lib/tbb/libtbb.so.2 (0x000078044df98000)
+        libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x000078044dc00000)
+        libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x000078044deb6000)
+        libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x000078044de89000)
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x000078044da1e000)
+        /lib64/ld-linux-x86-64.so.2 (0x000078044e1c0000)
+```
+
+The output shows that CmdStan links to a locally bundled copy of the Intel TBB library, the exact path depends on where you've installed CmdStan. Regardless of whether your model uses TBB, Stan will always link to it and set the [rpath](https://en.wikipedia.org/wiki/Rpath) to the local CmdStan directory.
+
+So, we'll also copy over `libtbb.so.2` and I'll use [`patchelf`](https://github.com/NixOS/patchelf) to modify the `rpath` of the model binary to point to the new directory.
+
+All together, we end up with the following Containerfile where again I'm using the example `bernoulli` model included with CmdStan.
+
+
+```{.Dockerfile include="Containerfile"}
+```
+
+The `analysis.R` file that is also being copied into the image is just a basic script that generates some simulated data and runs the pre-compiled model using `cmdstanr`. However, there are two important things to note. First, we use the `exe_file` argument to `cmdstan_model` to specify that our stan model has already been compiled.
+
+Second, `cmdstanr` will error if there is not a local copy of CmdStan available. This is not because we actually need to call out to CmdStan, but rather the function `cmdstan_version`, which is used for several version checks, relies on `cmdstan_path()` being properly set. Since we know exactly which version we've used to compile our model, we're going to override the `cmdstan_version` function within the `cmdstanr` package namespace to return a constant using the R function `assignInNamespace`.
+
+
+```{r, file = "analysis.R"}
+#| eval: false
+```
+
+Let's build our image and run a container.
+
+```shell
+$ podman build --jobs $(nproc) -t stan .
+$ podman images
+REPOSITORY                TAG           IMAGE ID      CREATED            SIZE
+localhost/stan            latest        e5f6927fe990  3 minutes ago      568 MB
+localhost/full-cmdstan    latest        a3dc48251dde  About an hour ago  1.81 GB
+$ podman run stan
+Running MCMC with 4 chains, at most 16 in parallel...
+
+Chain 1 finished in 0.0 seconds.
+Chain 2 finished in 0.0 seconds.
+Chain 3 finished in 0.0 seconds.
+Chain 4 finished in 0.0 seconds.
+
+All 4 chains finished successfully.
+Mean chain execution time: 0.0 seconds.
+Total execution time: 0.3 seconds.
+
+# A tibble: 2 x 10
+  variable    mean  median     sd    mad       q5     q95  rhat ess_bulk
+  <chr>      <dbl>   <dbl>  <dbl>  <dbl>    <dbl>   <dbl> <dbl>    <dbl>
+1 lp__     -12.3   -12.0   0.736  0.325  -13.8    -11.8    1.00    1649.
+2 theta      0.227   0.220 0.0871 0.0890   0.0960   0.378  1.00    1402.
+```
+
+The `full-cmdstan:latest` image is also derived from `debian:testing-slim`; however, it does not use a multi-stage build and instead includes a copy of CmdStan installed through `install_cmdstan()`. When compared to our slimmed down image, a reduction from 1.81 GB to 568 MB is not too bad.
