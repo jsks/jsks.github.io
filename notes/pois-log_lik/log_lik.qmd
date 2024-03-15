@@ -24,6 +24,7 @@ In the case where $y_i \sim \text{Poisson}\left(\lambda \right)$, this can easil
 ```{stan output.var = "x"}
 #| echo: true
 #| eval: false
+#| cache: false
 #| file: "poisson_aggregated.stan"
 ```
 
@@ -98,7 +99,11 @@ ggplot(est, aes(x = model, y = time, color = model)) +
 
 Stan code for the unaggregated model.
 
-```{stan code = readLines("poisson.stan"), eval = F, output.var = "x", echo = T}
+```{stan output.var = "x"}
+#| eval: false
+#| echo: true
+#| cache: false
+#| file: "poisson.stan"
 ```
 
 Computing environment:

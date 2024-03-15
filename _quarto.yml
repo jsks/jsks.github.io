@@ -1,11 +1,7 @@
-project:
-    title: Notes
-    render:
-            - "*.qmd"
-    output-dir: _output
+# -*- mode: yaml-ts -*-
 execute:
-    freeze: auto
+    cache: true
 format:
     html:
-            css: assets/style.css
-            highlight-style: atom-one
+        html-math-method: mathjax
+        minimal: true
