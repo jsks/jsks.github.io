@@ -1,0 +1,7 @@
+# -*- mode: yaml-ts -*-
+execute:
+    cache: true
+format:
+    html:
+        html-math-method: mathjax
+        minimal: true

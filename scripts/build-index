@@ -1,0 +1,25 @@
+#!/usr/bin/env zsh
+
+setopt err_return
+
+function usage {
+    print -u 2 "Usage: build-index <directory>"
+    exit 1
+}
+
+[[ ! -d $1 ]] && usage
+
+typeset -A dates
+typeset -A titles
+for i in $1/**/*.html; do
+    dates[$i]=$(htmlq -t '.date' < $i)
+    titles[$i]=$(htmlq -t '.title' < $i)
+done
+
+printf "---\ntitle: ~/jsks\n---\n"
+order=(${(Oi)dates})
+
+for d in $order; do
+    f=${(k)dates[(r)$d]}
+    printf "- $d: [${titles[$f]}](${f#*/})\n"
+done
