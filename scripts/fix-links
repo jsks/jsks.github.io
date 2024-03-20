@@ -9,5 +9,5 @@ fi
 
 for i in $1/*.html; do
     print "Adjusting file paths for $i"
-    sed -i -r -e "s/(${i:t:r}_files)/\.\.\/assets\/\1/" $i
+    sed -i -r -e "s/src=\"(${i:t:r}_files)/src=\"\.\.\/assets\/\1/" $i
 done
