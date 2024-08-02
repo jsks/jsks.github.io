@@ -1,0 +1,488 @@
+---
+title: "EM Algorithm: Part 3 - HMM"
+date: "2024-08-03"
+engine: julia
+bibliography: library.bib
+format:
+    html:
+        embed-resources: true
+---
+
+*This note is the third in a three part series on the expectation maximization algorithm.*
+
+Let's extend now the application of the expectation maximization algorithm to a different class of latent variable models --- hidden markov models (HMMs).
+
+An HMM models an observable sequence of data as a function of an underlying latent stochastic process that transitions according to the Markov property, *i.e.* when the future is conditionally independent of the past given the present.[^simplicity]
+
+As a working example, we'll be partially replicating a 2012 article examining the link between political violence and house prices in Northern Ireland [@besley_estimating_2012]. The paper applies a series of HMMs whereby the recorded number of killings per yearly quarter is modeled as a function of the system being in a latent state of either *peace* or *conflict*.
+
+It's a cool paper, but the code is atrocious which should have been a blocker for publication. So we're going to re-implement the HMM portion from scratch using the EM algorithm, or more specifically a subvariant typically referred to as the Baum-Welch algorithm [@baum_maximization_1970], to fit the models.
+
+[^simplicity]: For simplicity, we will restrict our discussion to first-order HMMs with finite state spaces and observed data measured at discrete uniform intervals of time.
+
+## Besley and Mueller Data
+
+The replication files can be found on the [AER website](https://www.aeaweb.org/articles?id=10.1257/aer.102.2.810). We're only going to be focusing on the HMM portion of the paper so ignore the data on house prices and grab the recorded number of regional killings per yearly quarter.
+
+```{julia}
+using DataFrames, Plots, ReadStatTables
+
+df = readstat("maindata.dta") |>
+     DataFrame |>
+     d -> dropmissing(d, :totaldeaths) |>
+     d -> select(d, [:region, :time, :totaldeaths])
+
+# Convert regions to proper names
+df.region_name = replace(df.region,
+    1 => "Belfast",
+    2 => "North Down",
+    3 => "Lisburn",
+    4 => "East Antrim",
+    5 => "Londonderry/Strabane",
+    6 => "Antrim/Ballymena",
+    7 => "Coleraine/Limavady",
+    8 => "Enniskillen/Fermanagh/S Tyrone",
+    9 => "Mid Ulster",
+    10 => "Mid and South Down",
+    11 => "Craigavon/Armagh")
+
+describe(df, cols = [:totaldeaths, :time])
+
+```
+
+To get a quick visual of the data, @fig-heatmap provides of the number of killings over time per region.
+
+```{julia}
+#| fig-cap: From @besley_estimating_2012, killings per region across time in Northern Ireland.
+#| label: fig-heatmap
+wide = unstack(df, :region_name, :time, :totaldeaths)
+quarters = names(wide)[2:end]
+
+heatmap(quarters, wide.region_name, Matrix(wide[:, 2:end]),
+    color=:Purples_9,
+    background_color=:transparent,
+    legend=:right,
+    xrotation = 45)
+
+```
+
+## HMM
+
+Formally, for some region $r \in \{1, 2, \ldots, 11\}$, let $\boldsymbol{s}_{r} = (s_{r1}, s_{r2}, \ldots, s_{rT})$ be a latent markov process satisfying $P(s_{rt} = k | s_{r,t-1}, s_{r,t-2}, \ldots, s_{r,1}) = P(s_{rt} = k | s_{r,t-1})$ for $k \in \{1, \ldots, K\}$ where $K = 2$ denotes the two latent states, *peace* and *conflict*. The sequence $\boldsymbol{s}_{r}$ is never directly observed; however, it does result in observable *emissions*, in this case the number of killings measured per yearly quarter, $\boldsymbol{y}_r = (y_{r1}, y_{r2}, \ldots, y_{rT})$.
+
+Each $y_{rt}$ is dependent on the hidden state at time $t$ such that $y_{rt} | s_{rt} = k \sim F_{rk}(\cdot)$ for some probability distribution, $F_{rk}$, with the system evolving according to @fig-evolution. Following the original paper, we specify $F_{rk}$ to be a normal distribution with parameters $\mu_{rk}$ and $\sigma_{rk}$.
+
+```{dot}
+//| fig-cap: Transition diagram showing the evolution of the hidden markov model for each time period $t = 1, 2, \ldots, t$.
+//| label: fig-evolution
+digraph hmm {
+    graph [splines=ortho,bgcolor=transparent];
+    node [shape=circle];
+
+    s1 [label=<s<sub>1</sub>>];
+    s2 [label=<s<sub>2</sub>>];
+    st [label=<s<sub>T</sub>>];
+
+    node [shape=plaintext];
+
+    sdots [label=". . ."]; // unicode ellipsis for ...
+
+    y1 [label=<y<sub>1</sub>>];
+    y2 [label=<y<sub>2</sub>>];
+    yt [label=<y<sub>T</sub>>];
+
+    // arrows between latent states
+    s1 -> s2;
+    s2 -> sdots;
+    sdots -> st;
+
+    // arrows from latent states to emissions
+    s1 -> y1;
+    s2 -> y2;
+    st -> yt;
+
+    // align all s nodes on the same rank
+    {rank=same; s1; s2; sdots; st;}
+    {rank=same; y1; y2; yt;}
+}
+```
+
+Given the previous latent state of the system at time $t-1$, the latent variable, $s_{rt}$, transitions with time invariant probabilities, $p_r$ and $q_r$. The former is the probability of transitioning to *conflict* from *conflict* and the latter from *peace* to *peace*. Taken together, the transition matrix, $\boldsymbol{A}_r$, is defined as
+
+$$
+\boldsymbol{A}_r = \begin{bmatrix}
+p_r & 1 - p_r \\
+1 - q_r & q_r
+\end{bmatrix}
+$$
+
+where each row is a probability simplex. When $t=1$ let the initial state probability be $\pi_{rk} = P(s_{r1} = k)$.
+
+Our goal is to estimate the set of parameters $\theta_r = \{\pi, \boldsymbol{A}, \xi\}$, where $\xi$ is the $F_1, \ldots, F_K$ distribution specific parameters, as well as generate predictions for the latent states $\boldsymbol{s}_r$.
+
+In line with the original paper, we will fit an HMM for each region separately using the EM algorithm to maximize the marginal log-likelihood, $\ell(\theta_r | \boldsymbol{y}_r) = \log p(\boldsymbol{y}_r | \theta_r)$.
+
+
+### EM Algorithm
+
+Start by defining the objective function in line with the previous discussions. We also drop the region subscript since it is implicit throughout.
+
+$$
+Q(\theta^\star, \theta) = \mathbb{E}_{\boldsymbol{s}} \left[ \log p(\boldsymbol{y}, \boldsymbol{s} | \theta) \middle| \boldsymbol{y}, \theta^\star \right]
+$$ {#eq-obj}
+
+The joint probability function, $p(\boldsymbol{y}, \boldsymbol{s} | \theta)$, can be found recursively.
+
+$$
+p(\boldsymbol{y}, \boldsymbol{s} | \theta) =  p(\boldsymbol{y} | \boldsymbol{s}, \theta) p(\boldsymbol{s} | \theta) =  p(s_1 | \theta) \prod_{t=2}^T p(s_t | s_{t-1}, \theta) \prod_{t=1}^T p(y_t | s_t, \theta)
+$$
+
+Substituting this into @eq-obj and taking advantage of the linearity of expectation leads to the following form for the objective function.
+
+$$
+Q(\theta^\star, \theta) = \mathbb{E}_{\boldsymbol{s}} \left[ \log p(s_1 | \theta) \middle| \boldsymbol{y}, \theta^\star \right] + \mathbb{E}_{\boldsymbol{s}} \left[ \sum_{t=2}^T \log p(s_t | s_{t-1}, \theta) \middle| \boldsymbol{y}, \theta^\star\right] + \mathbb{E}_{\boldsymbol{s}} \left[ \sum_{t=1}^T \log p(y_t | s_t, \theta) \middle| \boldsymbol{y}, \theta^\star \right]
+$$
+
+This function can be further simplified by isolating each term. Beginning with the first,
+
+\begin{align*}
+\mathbb{E}_{\boldsymbol{s}} \left[ \log p(s_1 | \theta) \middle| \boldsymbol{y}, \theta^\star \right] & = \sum_{s_1, \ldots, s_t} p(s_1, \ldots, s_t | \boldsymbol{y}, \theta^\star) \log p(s_1 | \theta) \\
+& = \sum_{k=1}^K P(s_1 = k | \boldsymbol{y}, \theta^\star) \log \pi_k
+\end{align*}
+
+followed by,
+
+\begin{align*}
+\mathbb{E}_{\boldsymbol{s}} \left[ \sum_{t=2}^T \log p(s_t | s_{t-1}, \theta) \middle| \boldsymbol{y}, \theta^\star \right] & = \sum_{s_1, \ldots, s_t} p(s_1, \ldots, s_t | \boldsymbol{y}, \theta^\star) \sum_{t=2}^T \log p(s_t | s_{t-1}, \theta) \\
+& = \sum_{t=2}^T \left( \sum_{s_1, \ldots, s_t} p(s_1, \ldots, s_t | \boldsymbol{y}, \theta^\star) \log p(s_t | s_{t-1}, \theta) \right) \\
+& = \sum_{t=2}^T \left( \sum_{i=1}^K \sum_{j=1}^K P(s_{t-1} = i, s_t = j | \boldsymbol{y}, \theta^\star) \log A_{ij} \right)
+\end{align*}
+
+
+and finally,
+
+\begin{align*}
+\mathbb{E}_{\boldsymbol{s}} & = \left[ \sum_{t=1}^T \log p(y_t | s_t, \theta) \middle| \boldsymbol{y}, \theta^\star \right] \\
+& = \sum_{s_1, \ldots, s_t} p(s_1, \ldots, s_t | \boldsymbol{y}, \theta^\star) \sum_{t=1}^T \log p(y_t | s_t, \theta) \\
+& = \sum_{t=1}^T \sum_{k=1}^K P(s_t = k | \boldsymbol{y}, \theta^\star) \log f_k(y_t | \theta)
+\end{align*}
+
+where $f_k(\cdot)$ is the probability function for the observed distribution given latent state $k$.
+
+Letting $\gamma_t(k) = p(s_t = k | \boldsymbol{y}, \theta^\star)$ and $\phi_{t-1,t}(i, j) = p(s_{t-1} = i, s_{t} = j | \boldsymbol{y}, \theta^\star)$, we are left with the following.
+
+$$
+Q(\theta^\star, \theta) = \sum_{k=1}^K \gamma_1(k) \log \pi_k + \sum_{t=2}^T \sum_{i=1}^K \sum_{j=1}^K \phi_{t-1,t}(i, j) \log A_{ij} + \sum_{t=1}^T \sum_{k=1}^K \gamma_t(k) \log f_k(y_t | \theta)
+$$ {#eq-final}
+
+### E-Step
+
+The expectation step consists of calculating $\gamma_t(k)$ and $\phi_{t-1,t}(i, j)$ for all $k, i, j \in \{1, \ldots, K \}$ using the current iteration of $\theta$.
+
+The former can be expressed in terms of Bayes' theorem and simplified.
+
+$$
+\begin{align*}
+\gamma_t(k) & = p(s_t = k | \boldsymbol{y}, \theta^\star) \\
+& = \cfrac{p(y_1, \ldots, y_t | s_t = k, \theta^\star) P(s_t = k| \theta^\star)}{p(y_1, \ldots, y_t | \theta^\star)} \\
+& = \cfrac{p(y_1, \ldots, y_t | s_t = k, \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star) P(s_t = k | \theta^\star)}{\sum_{s_1, \ldots, s_t} p(\boldsymbol{y}, \boldsymbol{s} | \theta^\star)}\\
+& = \cfrac{p(y_1, \ldots, y_t, s_t = k | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star)}{\sum_{i=1}^K p(y_1, \ldots, y_t, s_t = i | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star)} \\
+& = \cfrac{\alpha_t(k) \beta_t(k)}{\sum_{i=1}^K \alpha_t(i) \beta_t(i)}
+\end{align*}
+$$ {#eq-gamma}
+
+Note, the denominator is formed by marginalizing the joint probability function.
+
+$$
+p(\boldsymbol{s}) = \sum_{\boldsymbol{z}} p(\boldsymbol{x}, \boldsymbol{z}) = \sum_{z_t} \left( \sum_{\boldsymbol{z} \setminus z_t} p(\boldsymbol{x}, \boldsymbol{z}) \right) = \sum_{z_t} p(\boldsymbol{x}, z_t)
+$$
+
+In addition, the variables $\alpha_t(k)$ and $\beta_t(k)$ were substituted to respectively represent the forward probabilities, *i.e.* the joint probability of observing $y_1, \ldots, y_t$ and being in state $k$ at time $t$, and the backward probabilities, *i.e.*, the probability of observing $y_{t+1}, \ldots, y_T$ given latent state $k$ at time $t$.
+
+These forward and backward probabilities are also used to express $\phi_{t-1,t}(i, j)$.
+
+$$
+\begin{align*}
+\phi_{t-1,t}(i, j) & = P(s_{t-1} = i, s_t = j | \boldsymbol{y}, \theta^\star) \\
+& = \cfrac{p(y_1, \ldots, y_t | s_{t-1} = i, s_t = j, \theta^\star) P(s_{t-1} = i, s_{t} = j | \theta^\star)}{p(\boldsymbol{y} | \theta^\star)} \\
+& = \cfrac{p(y_1, \ldots, y_{t-1} | s_{t-1} = i, \theta^\star) p(y_t | s_t = j, \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = j, \theta^\star) P(s_t = j | s_{t-1} = i, \theta^\star) P(s_{t-1} = i | \theta^\star)}{p(\boldsymbol{y} | \theta^\star)} \\
+& = \cfrac{\alpha_{t-1}(i) f_j(y_t | \theta^\star) \beta_{t}(j) P(s_t = j | s_{t-1} = i, \theta^\star)}{p(\boldsymbol{y} | \theta^\star)}
+\end{align*}
+$$ {#eq-phi}
+
+It is clear that we need to be able to find expressions for $\alpha_t(k)$ and $\beta_t(k)$ as part of the E-Step. Unsurprisingly, in accordance with today's theme, this will be done using recursion. Starting with the forward probabilities,
+
+$$
+\begin{align*}
+\alpha_t(k) & = p(y_1, \ldots, y_t | s_t = k, \theta^\star) P(s_t = k, \theta^\star) \\
+& = p(y_t | s_t = k ,\theta^\star) \sum_{s_{t-1}} p(y_1, \ldots, y_{t-1}, s_{t-1}, s_t | \theta^\star) \\
+& = p(y_t | s_t = k, \theta^\star) \sum_{s_{t-1}} p(y_1, \ldots, y_{t-1} | s_{t-1}, \theta^\star) P(s_t = k | s_{t-1} = i, \theta^\star) \\
+& = f_k(y_t | \theta^\star) \sum_{i=1}^K \alpha_{t-1}(i) P(s_t = k| s_{t-1} = i, \theta^\star)
+\end{align*}
+$$ {#eq-forward}
+
+with initial value, $\alpha_1(k) = p(y_1 | s_1 = k, \theta^\star) P(s_1 = k | \theta^\star) = \pi_k f_k(y_1 | \theta^\star)$. Note, as part of this derivation recognize that $y_1, \ldots, y_{t-1} {\perp\!\!\!\perp} s_t | s_{t-1}$. In other words, the observed data up until $t-1$ are independent of the future latent states given the present state allowing us to express $p(y_1, \ldots, y_{t-1} | s_t, s_{t-1}) = p(y_1, \ldots, y_{y-1} | s_{t-1})$.
+
+Before we actually implement this in code, however, consider what happens to $\alpha_t(k)$ as $t \to \infty$. The forward probabilities will decay exponentially and risk underflowing. Therefore, to improve numeric stability we replace $\alpha_t(k)$ with its normalized form, $\hat{\alpha}_t(k) = \frac{\alpha_t(k)}{c_t}$, where $c_t = \sum_{i=1}^K \alpha_t(k)$.[^scaling_factors].
+
+[^scaling_factors]: The scaling factors arise from normalizing the forward probabilities such that $\hat{\alpha}_t(k) = p(s_t | y_1, y_2, \ldots, y_t) = \frac{\alpha_t(k)}{p(y_1, y_2, \ldots, y_t)}$. Letting $c_t = p(y_t | y_1, y_2, \ldots, y_{t-1})$, then $\alpha_t(k) = \left(\prod_{m=1}^t c_t \right) \hat{\alpha}_t(k)$. Substituting into @eq-forward yields
+
+    \begin{align*}
+    \alpha_t(k) & = p(y_t | s_t = k) \sum_{i=1}^K \left(\prod_{m=1}^{t-1} c_m \right) \hat{\alpha}_{t-1}(i) p(s_t = k | s_{t-1} = i) \\
+    & = \left(\prod_{m=1}^{t-1} c_m \right) p(y_t | s_t = k) \sum_{i=1}^K p(s_{t-1} = i | y_1, y_2, \ldots, y_{t-1}) p(s_t = k | s_{t-1} = i) \\
+    & = \left(\prod_{m=1}^{t-1} c_m \right) p(y_t, s_t = k | y_1, y_2, \ldots, y_{t-1})
+    \end{align*}
+
+    Marginalizing $\alpha_t(k)$ leads to $\sum_{i=1}^K \alpha_t(k) = \left(\prod_{m=1}^{t-1} c_m \right) p(y_t | y_1, y_2, \ldots, y_{t-1}) = \left(\prod_{m=1}^{t-1} c_m \right) c_t$. Recall, $\hat{\alpha}_t(k) = \frac{\alpha_t(k)}{\prod_{m=1}^t c_m}$. Thus,
+
+    \begin{align*}
+    \hat{\alpha}_t(k) = \cfrac{\left(\prod_{m=1}^{t-1} c_m\right) p(y_t | s_t = k) \sum_{i=1}^K \hat{\alpha}_{t-1}(k) p(s_t = k | s_{t-1} = i)}{\left(\prod_{m=1}^{t-1} c_m \right) c_t}
+    \end{align*}
+
+    Dropping the product term, we calculate $\alpha_t(k)$ using the previous normalized term, $\hat{\alpha}_{t-1}(k)$, and normalize the present value with scaling factor, $c_t = \sum_{i=1}^K \alpha_t(i)$.
+
+
+```{julia}
+#| output: false
+"""
+Calculate normalized forward probabilities.
+
+# Arguments
+- `π`: Initial state probabilities
+- `A`: Transition matrix
+- `B`: Emission likelihoods, ie ``N(y | μ_k, σ_k)``
+"""
+function forward(π, A, B)
+    α = Array{Float64}(undef, size(B, 1), length(π))
+    c = Vector{Float64}(undef, size(B, 1))
+
+    # Initial forward probabilities
+    α[begin, :] .= B[begin, :] .* π
+
+    # Normalize by scaling factor
+    c[begin] = sum(α[begin, :])
+    α[begin, :] ./= c[begin]
+
+    for t in Iterators.drop(axes(B, 1), 1)
+        for j in eachindex(π)
+            α[t, j] = B[t, j] * sum(α[t-1, :] .* A[:, j])
+        end
+
+        c[t] = sum(α[t, :])
+        α[t, :] ./= c[t]
+    end
+
+    return α, c
+end
+```
+
+The backward probabilities, $\beta_t(k)$, can be obtained similarly.
+
+\begin{align*}
+\beta_t(k) & = p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star) \\
+& = \sum_{s_{t+1}} p(y_{t+1}, \ldots, y_t, s_{t+1} | s_t = k, \theta^\star) \\
+& = \sum_{s_{t+1}} p(y_{t+1}, \ldots, y_t | s_{t+1}, \theta^\star) p(s_{t+1} | s_t = k) \\
+& = \sum_{i=1}^K p(y_{t+2}, \ldots, y_t | s_{t+1}) p(y_{t+1} | s_{t+1} = i) p(s_{t+1} = i, s_t = k) \\
+& = \sum_{i=1}^K \beta_{t+1}(i) f_i(y_{t+1} | \theta^\star) p(s_{t+1} = i | s_t = k)
+\end{align*}
+
+We also normalize the backward probabilities with the same scaling factors such that $\hat{\beta}_t(k) = \frac{\beta_t(k)}{c_{t+1}}$.
+
+```{julia}
+#| output: false
+"""
+Calculate normalized backward probabilities.
+
+# Arguments
+- `π`: Initial state probabilities
+- `A`: Transition matrix
+- `B`: Emission likelihoods, ie ``N(y | μ_k, σ_k)``
+- `c`: Scaling factors
+"""
+function backward(π, A, B, c)
+    β = Array{Float64}(undef, size(B, 1), length(π))
+
+    β[end, :] .= 1
+    for t in axes(B, 1) |> reverse |> (x -> Iterators.drop(x, 1))
+        for j in eachindex(π)
+            β[t, j] = sum(β[t+1, i] * B[t+1, i] * A[j, i] for i in 1:length(π))
+        end
+
+        β[t, :] ./= c[t+1]
+    end
+
+    return β
+end
+```
+
+
+Finally, implement the E-Step to update $\gamma_t(k)$ and $\phi_{t-1,t}(i,j)$ using @eq-gamma and @eq-phi.[^invariant]
+
+[^invariant]: Note, the calculations for $\gamma_t(k)$ and $\phi_{t-1,t}(i,j)$ remain invariant to whether $\alpha_t(k)$ and $\beta_t(k)$ are normalized.
+
+```{julia}
+#| output: false
+using Distributions
+
+"""
+EM algorithm E-step.
+
+# Arguments:
+- `X`: Observed data
+- `π`: Initial state probabilities
+- `A`: Transition matrix
+- `μ`: Means of the emission distributions
+- `σ`: Standard deviations of the emission distributions
+"""
+function E_step(X, π, A, μ, σ)
+    B = hcat([pdf(Normal(μ[i], σ[i]), X) for i in 1:length(π)]...)
+
+    α, c = forward(π, A, B)
+    β = backward(π, A, B, c)
+
+    γ = α .* β
+    γ ./= sum(γ, dims=2)
+
+    ϕ = Array{Float64}(undef, length(X) - 1, length(π), length(π))
+    for t in Iterators.take(eachindex(X), length(X) - 1)
+        ϕ[t, :, :] = α[t, :] .* A .* (B[t+1, :]' .* β[t+1, :]')
+        ϕ[t, :, :] ./= sum(ϕ[t, :, :])
+    end
+
+    return  sum(log.(c)), α, ϕ, γ
+end
+```
+
+### M-Step
+
+Returning to @eq-final, we update $\theta = \{\boldsymbol{A}, \pi, \mu, \sigma \}$ in the M-Step by maximizing the objective function, $\theta = \text{arg max}_{\theta \in \Theta} Q(\theta^\star, \theta)$, while treating $\gamma_t(k)$ and $\phi_{t-1,t}(i, j)$ as constant.
+
+For brevity I will skip the full derivations, but solving the maximization problems leads to the following updating equations:[^mstep]
+
+[^mstep]: We deviate here from the original paper when updating $\theta$. One potential issue when fitting a mixture of gaussians is that if $\sigma_k^2$ becomes too small it may lead to numeric instability. @besley_estimating_2012 mitigate this by following @james_d_hamilton_quasi-bayesian_1991 and using quasi-bayesian priors, which introduces a degree of regularization through penalized MLE. We will take a simpler, more naive approach and instead constrain the variances to a minimum threshold. The implication is that our results will not be an exact replication and differences will arise between the different sets of posterior estimates.
+
+\begin{align*}
+\pi_k & = \cfrac{\gamma_1(k)}{\sum_{i=1}^K \gamma_1(i)} \\
+a_{ij} & = \cfrac{\sum_{t=2}^T \phi_{t-1,t}(i, j)}{\sum_{k=1}^K \sum_{t=2}^T \phi_{t-1,t}(i, k)} \\
+\mu_k & = \cfrac{\sum_{t=1}^T \gamma_t(k) y_t}{\sum_{t=1}^T \gamma_t(k)} \\
+\sigma_k^2 & = \cfrac{\sum_{t=1}^T \gamma_t(k) (y_t - \mu_k)^2}{\sum_{t=1}^T \gamma_t(k)}
+\end{align*}
+
+```{julia}
+#| output: false
+using LinearAlgebra
+
+"""
+EM algorithm M-Step.
+
+# Arguments:
+- `X`: Observed data
+- `γ`: Probability of being in state `k` given `X`
+- `ϕ`: Joint probability of being in state ``i`` and ``j`` at times ``t-1`` and ``t`` given `X`
+"""
+function M_step(X, γ, ϕ)
+    π = γ[1, :]
+
+    q = dropdims(sum(ϕ, dims=1), dims=1)
+    A = q ./ sum(q, dims=2)
+
+    μ = sum(γ .* X, dims=1) ./ sum(γ, dims=1)
+    σ = sqrt.([dot(γ[:, i], (X .- μ[i]).^2) / sum(γ[:, i]) for i in axes(γ, 2)])
+
+    return π, A, vec(μ), max.(σ, 1e-5)
+end
+```
+
+### EM Function
+
+The entry point for the EM implementation sets the initial values for $\theta$ according to the values selected by the original paper.
+
+It then iterates between the E-Step and M-Step until convergence with the stopping criteria also in line with the paper. Specifically, the algorithm stops when the absolute difference in estimates between iterations drops below a threshold. Formally, with some slight abuse in notation, we express this condition as $\forall i \in \{1, 2, \ldots, n \}, \; |\theta_i - \theta_i^\star| < \epsilon$ for $n$ parameters and $\epsilon > 0$.
+
+```{julia}
+#| output: false
+"""
+Entry point for EM algorithm.
+"""
+function EM(X; max_iter=1_000, tol=1e-8)
+    π = fill(0.5, 2)
+    A = [0.5 0.5; 0.5 0.5]
+
+    μ = [0, 3]
+    σ = [1, sqrt(3)]
+
+    for i in 1:max_iter
+        # E-step
+        log_lik, α, ϕ, γ = E_step(X, π, A, μ, σ)
+
+        @info "Iteration $i: log-likelihood = $log_lik: μ = $μ"
+
+        # M-step
+        π_new, A_new, μ_new, σ_new = M_step(X, γ, ϕ)
+
+        # Stopping criteria
+        delta = Iterators.flatten([π_new - π, A_new - A, μ_new - μ, σ_new - σ])
+        if all(abs.(delta) .< tol)
+            return A_new[1], A_new[4], μ_new, α
+        end
+
+        π, A, μ, σ = π_new, A_new, μ_new, σ_new
+    end
+
+    error("Model failed to converge")
+end
+```
+
+### Run it all
+
+Finally, run each region specific model.
+
+```{julia}
+#| output: false
+# Enable logging to print the log-likelihood for each iteration
+using Logging
+disable_logging(Logging.Info)
+
+# Fit an HMM per region
+groups = groupby(df, :region_name) |> collect
+results = [EM(d.totaldeaths) for d in groups]
+```
+
+We can summarise the model fits by re-constructing Table 2 from the original paper. Most of the results are fairly in line, with the notable exception of Londonderry/Strabane which we estimate as having a significantly less degree of persistence between states.
+
+```{julia}
+#| output: asis
+tbl = map(((p, q, μ, _),) -> (μ[2], μ[1], q, p), results) |>
+      DataFrame
+rename!(tbl, ["Mean(conflict)", "Mean(peace)", "P(Conflict | Conflict)", "P(Peace | Peace)"])
+tbl.Region = map(d -> d.region_name[1], groups)
+
+using PrettyTables
+pretty_table(select(tbl, :Region, :);
+    formatters = ft_printf("%5.3f"),
+    backend = Val(:markdown),
+    show_subheader=false)
+```
+
+We can also recreate Figure 4 from the original paper in order to plot the posterior expectations for the amount of violence per yearly quarter across four different regions.[^predictions] Again, Londonderry/Strabane stands out as our fitted HMM is more likely to transition between *conflict* and *peace* than the original results. Otherwise, the remaining region predictions are fairly in line with @besley_estimating_2012.
+
+[^predictions]: Typically fitted values are generated by conditioning on the entire sequence of observed data. However, in following the original paper, we will only use the forward probabilities and define $\hat{y}_t = \sum_{k=1}^K \mathbb{E} \left[ y_t | s_t = k \right] p(s_t = k | y_1, \ldots, y_t)$.
+
+```{julia}
+#| fig-cap: Observed and predicted quarterly killings.
+function pp(df, result)
+    _, _, μ, α = result
+    p = plot(df.time, df.totaldeaths, label="Observed deaths",
+        legend=:topright, title=df.region_name[1], xrotation=45,
+        background_color=:transparent)
+    plot!(p, df.time, α * μ, label="Predicted deaths")
+
+    return p
+end
+
+plot([pp(groups[i], results[i]) for i in [1, 5, 3, 9]]..., layout=[2,2])
+```
+
+There is plenty of room for further improvement. We can investigate more robust initialization strategies, run sensitivity analyses, and implement a number of easy optimizations to the code in order to improve performance. Have fun, the world is your oyster.
+
+# References
