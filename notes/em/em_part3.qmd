@@ -3,9 +3,6 @@ title: "EM Algorithm: Part 3 - HMM"
 date: "2024-08-03"
 engine: julia
 bibliography: library.bib
-format:
-    html:
-        embed-resources: true
 ---
 
 *This note is the third in a three part series on the expectation maximization algorithm.*
