@@ -1,0 +1,28 @@
+# -*- mode: dockerfile-ts -*-
+
+# Our build stage is essentially the same as before
+FROM debian:12 as cmdstan
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential ca-certificates curl patchelf && \
+    rm -rf /var/lib/apt/lists/*
+
+ARG CMDSTAN_VERSION=2.34.1
+
+RUN curl -LO https://github.com/stan-dev/cmdstan/releases/download/v${CMDSTAN_VERSION}/cmdstan-${CMDSTAN_VERSION}.tar.gz \
+    && mkdir -p cmdstan \
+    && tar -xzf cmdstan-${CMDSTAN_VERSION}.tar.gz --strip 1 -C cmdstan
+
+WORKDIR /cmdstan
+
+RUN make -j$(nproc) examples/bernoulli/bernoulli && \
+    patchelf --set-rpath / examples/bernoulli/bernoulli && \
+    strip -s examples/bernoulli/bernoulli
+
+FROM gcr.io/distroless/cc-debian12
+
+COPY --from=cmdstan /cmdstan/examples/bernoulli/bernoulli.data.json .
+COPY --from=cmdstan /cmdstan/examples/bernoulli/bernoulli .
+COPY --from=cmdstan /cmdstan/stan/lib/stan_math/lib/tbb/libtbb.so.2 .
+
+ENTRYPOINT ["/bernoulli", "sample", "num_chains=4", "data", "file=/bernoulli.data.json"]

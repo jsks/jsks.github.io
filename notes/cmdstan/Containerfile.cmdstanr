@@ -1,3 +1,4 @@
+# -*- mode: dockerfile-ts -*-
 FROM debian:testing-slim AS base
 
 RUN apt-get update && \
