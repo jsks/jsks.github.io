@@ -1,36 +1,16 @@
 ---
 title: "EM Algorithm: Part 1"
 date: "2024-02-17"
-nocite: "[@*]"
-references:
-- author:
-  - family: Bishop
-    given: Christopher
-  id: bishop2006pattern
-  issued: 2006
-  publisher: Springer
-  title: Pattern recognition and machine learning
-  type: book
-- author:
-  - family: Hastie
-    given: Trevor
-  - family: Tibshirani
-    given: Robert
-  - family: Friedman
-    given: Jerome H
-  - family: Friedman
-    given: Jerome H
-  id: hastie2009elements
-  issued: 2009
-  publisher: Springer
-  title: "The elements of statistical learning: Data mining, inference,
-    and prediction"
-  title-short: The elements of statistical learning
-  type: book
-  volume: 2
+bibliography: library.bib
+nocite: |
+    @bishop_pattern_2006
+    @hastie_elements_2009
 ---
 
-*This note is the first in a three part series on the expectation maximization algorithm.*
+*This note is the first in a three part series on the expectation maximization algorithm. [Part 1](em_part1.html) gives a cursory overview of the algorithm, [Part 2](em_part2.html) deals with mixture models, and [Part 3](em_part3.html) applies the EM algorithm to hidden markov models.*
+
+---
+
 
 The expectation-maximization (EM) algorithm is a two-step iterative process for estimating the parameters in a latent variable model.
 
