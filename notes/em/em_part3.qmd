@@ -3,9 +3,16 @@ title: "EM Algorithm: Part 3 - HMM"
 date: "2024-08-03"
 engine: julia
 bibliography: library.bib
+format:
+    html:
+        toc: true
 ---
 
-*This note is the third in a three part series on the expectation maximization algorithm.*
+*This note is the third in a three part series on the expectation maximization algorithm. [Part 1](em_part1.html) gives a cursory overview of the algorithm, [Part 2](em_part2.html) deals with mixture models, and [Part 3](em_part3.html) applies the EM algorithm to hidden markov models.*
+
+---
+
+## Introduction
 
 Let's extend now the application of the expectation maximization algorithm to a different class of latent variable models --- hidden markov models (HMMs).
 
@@ -13,11 +20,11 @@ An HMM models an observable sequence of data as a function of an underlying late
 
 As a working example, we'll be partially replicating a 2012 article examining the link between political violence and house prices in Northern Ireland [@besley_estimating_2012]. The paper applies a series of HMMs whereby the recorded number of killings per yearly quarter is modeled as a function of the system being in a latent state of either *peace* or *conflict*.
 
-It's a cool paper, but the code is atrocious which should have been a blocker for publication. So we're going to re-implement the HMM portion from scratch using the EM algorithm, or more specifically a subvariant typically referred to as the Baum-Welch algorithm [@baum_maximization_1970], to fit the models.
+It's a really cool paper, but the code is atrocious which should have been a blocker for publication. So we're going to re-implement the HMM portion from scratch using the EM algorithm, or more specifically a subvariant typically referred to as the Baum-Welch algorithm [@baum_maximization_1970], to fit the models.
 
 [^simplicity]: For simplicity, we will restrict our discussion to first-order HMMs with finite state spaces and observed data measured at discrete uniform intervals of time.
 
-## Besley and Mueller Data
+## Replication Data
 
 The replication files can be found on the [AER website](https://www.aeaweb.org/articles?id=10.1257/aer.102.2.810). We're only going to be focusing on the HMM portion of the paper so ignore the data on house prices and grab the recorded number of regional killings per yearly quarter.
 
@@ -183,7 +190,7 @@ $$
 \gamma_t(k) & = p(s_t = k | \boldsymbol{y}, \theta^\star) \\
 & = \cfrac{p(y_1, \ldots, y_t | s_t = k, \theta^\star) P(s_t = k| \theta^\star)}{p(y_1, \ldots, y_t | \theta^\star)} \\
 & = \cfrac{p(y_1, \ldots, y_t | s_t = k, \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star) P(s_t = k | \theta^\star)}{\sum_{s_1, \ldots, s_t} p(\boldsymbol{y}, \boldsymbol{s} | \theta^\star)}\\
-& = \cfrac{p(y_1, \ldots, y_t, s_t = k | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star)}{\sum_{i=1}^K p(y_1, \ldots, y_t, s_t = i | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star)} \\
+& = \cfrac{p(y_1, \ldots, y_t, s_t = k | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = k, \theta^\star)}{\sum_{i=1}^K p(y_1, \ldots, y_t, s_t = i | \theta^\star) p(y_{t+1}, \ldots, y_t | s_t = i, \theta^\star)} \\
 & = \cfrac{\alpha_t(k) \beta_t(k)}{\sum_{i=1}^K \alpha_t(i) \beta_t(i)}
 \end{align*}
 $$ {#eq-gamma}
@@ -191,7 +198,7 @@ $$ {#eq-gamma}
 Note, the denominator is formed by marginalizing the joint probability function.
 
 $$
-p(\boldsymbol{s}) = \sum_{\boldsymbol{z}} p(\boldsymbol{x}, \boldsymbol{z}) = \sum_{z_t} \left( \sum_{\boldsymbol{z} \setminus z_t} p(\boldsymbol{x}, \boldsymbol{z}) \right) = \sum_{z_t} p(\boldsymbol{x}, z_t)
+p(\boldsymbol{y}) = \sum_{\boldsymbol{s}} p(\boldsymbol{y}, \boldsymbol{s}) = \sum_{s_t} \left( \sum_{\boldsymbol{s} \setminus s_t} p(\boldsymbol{y}, \boldsymbol{s}) \right) = \sum_{s_t} p(\boldsymbol{y}, s_t)
 $$
 
 In addition, the variables $\alpha_t(k)$ and $\beta_t(k)$ were substituted to respectively represent the forward probabilities, *i.e.* the joint probability of observing $y_1, \ldots, y_t$ and being in state $k$ at time $t$, and the backward probabilities, *i.e.*, the probability of observing $y_{t+1}, \ldots, y_T$ given latent state $k$ at time $t$.
