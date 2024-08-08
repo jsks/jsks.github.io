@@ -8,7 +8,10 @@ execute:
 toc: true
 ---
 
-*This note is the second in a three part series on the expectation maximization algorithm.*
+*This note is the second in a three part series on the expectation maximization algorithm. [Part 1](em_part1.html) gives a cursory overview of the algorithm, [Part 2](em_part2.html) deals with mixture models, and [Part 3](em_part3.html) applies the EM algorithm to hidden markov models.*
+
+---
+
 
 Let's see the EM algorithm in action by using it on a toy example. We'll implement several mixture models in Julia to classify handwritten digits from the [MNIST dataset](http://yann.lecun.com/exdb/mnist/).
 
