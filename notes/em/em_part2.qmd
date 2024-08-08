@@ -1,10 +1,11 @@
 ---
 title: "EM Algorithm: Part 2 - MNIST"
 date: "2024-02-18"
-jupyter: julia-1.10
+engine: julia
 execute:
     fig-height: 4
     fig-width: 4
+toc: true
 ---
 
 *This note is the second in a three part series on the expectation maximization algorithm.*
