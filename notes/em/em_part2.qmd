@@ -28,6 +28,8 @@ The MNIST dataset consists of 70,000 grayscale images of handwritten digits. We 
 #| label: fig-bin-digits
 
 using Colors, MLDatasets, Plots
+
+ENV["DATADEPS_ALWAYS_ACCEPT"] = true
 pixels, labels = MNIST(split=:train)[:]
 
 plts = [plot(1 .- Gray.(img')) for img in eachslice(pixels[:, :, 1:6], dims=3)]
@@ -85,7 +87,7 @@ Given the previous equations, the E-step is fairly straightforward. Start by def
 ```{julia}
 #| output: false
 function log_mvbernoulli_pmf(y, lp, lp1m)
-    sum((pixel == 1) ? lp[i] : lp1m[i] for (i, pixel) in enumerate(y))
+    sum(@inbounds (pixel == 1) ? lp[i] : lp1m[i] for (i, pixel) in enumerate(y))
 end
 ```
 
@@ -129,12 +131,12 @@ The M-step involves finding $\theta^{(t+1)} = \text{arg max}_{\theta \in \Theta}
 #| output: false
 using LinearAlgebra
 
-function M_step!(Y, γ, ϕ, π)
+function M_step!(sY, γ, ϕ, π)
     cluster_sums = vec(sum(γ, dims=1))
 
-    π .= cluster_sums ./ size(Y, 2)
+    π .= cluster_sums ./ size(sY, 2)
 
-    mul!(ϕ, Y, γ)
+    mul!(ϕ, sY, γ)
     ϕ ./= cluster_sums'
     clamp!(ϕ, eps(), 1 - eps())
 end
@@ -147,6 +149,8 @@ All that remains is to write a function that selects initial values for $\theta$
 
 ```{julia}
 #| output: false
+using SparseArrays
+
 function marginal_log_lik(Y, ϕ, π)
     lpi = log.(π)
     lp = log.(ϕ)
@@ -166,10 +170,14 @@ function EM(Y, K; max_iter=1_000, tol=1e-5)
     ϕ = rand(Float64, size(Y, 1), K)
     γ = zeros(Float64, size(Y, 2), K)
 
+    # The M-Step matrix multiplication can be greatly sped up using a
+    # sparse matrix representation of the binary data
+    sY = SparseMatrixCSC(Y)
+
     log_lik_prev = log_lik_new = -Inf
     for i in 1:max_iter
         E_step!(Y, γ, ϕ, π)
-        M_step!(Y, γ, ϕ, π)
+        M_step!(sY, γ, ϕ, π)
 
         log_lik_new = marginal_log_lik(Y, ϕ, π)
         log_lik_diff = abs(log_lik_new - log_lik_prev)
@@ -183,6 +191,7 @@ function EM(Y, K; max_iter=1_000, tol=1e-5)
 
     error("Model failed to converge")
 end
+
 ```
 
 But, we're missing one final piece of the puzzle before we can finally run our model. We want to be able to recover the latent classification $\hat{k}_i$ for each image $i$ by finding the latent state with the highest posterior probability given the observed data and parameter vector $\theta$.
@@ -319,7 +328,7 @@ function E_step!(Y, γ, π, μ, Σ)
         denominator = logsumexp(lp)
 
         for k in 1:length(π)
-            γ[i, k] = exp(lp[k] - denominator)
+            @inbounds γ[i, k] = exp(lp[k] - denominator)
         end
     end
 end
