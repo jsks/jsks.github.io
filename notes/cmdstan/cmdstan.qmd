@@ -56,6 +56,8 @@ Let's build our image.
 $ podman build --jobs $(nproc) -t cmdstanr -f Containerfile.cmdstanr .
 $ podman images
 REPOSITORY                TAG           IMAGE ID      CREATED            SIZE
+localhost/cmdstanr        latest        e5f6927fe990  3 minutes ago      568 MB
+localhost/full-cmdstanr   latest        a3dc48251dde  About an hour ago  1.81 GB
 $ podman run stan
 Running MCMC with 4 chains, at most 16 in parallel...
 
@@ -73,8 +75,6 @@ Total execution time: 0.3 seconds.
   <chr>      <dbl>   <dbl>  <dbl>  <dbl>    <dbl>   <dbl> <dbl>    <dbl>
 1 lp__     -12.3   -12.0   0.736  0.325  -13.8    -11.8    1.00    1649.
 2 theta      0.227   0.220 0.0871 0.0890   0.0960   0.378  1.00    1402.
-localhost/cmdstanr        latest        e5f6927fe990  3 minutes ago      568 MB
-localhost/full-cmdstanr   latest        a3dc48251dde  About an hour ago  1.81 GB
 ```
 
 The `full-cmdstanr:latest` image is also derived from `debian:testing-slim`; however, it does not use a multi-stage build and instead includes a copy of CmdStan installed through `install_cmdstan()`. When compared to our slimmed down image, a reduction from 1.81 GB to 568 MB is not too bad.
