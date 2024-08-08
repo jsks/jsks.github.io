@@ -1,0 +1,11 @@
+# -*- mode: yaml-ts -*-
+execute:
+    cache: true
+format:
+    html:
+        css: [../assets/css/sakura.css, ../assets/css/site.css]
+        html-math-method: mathjax
+        include-in-header:
+                - text: <script src="../assets/js/toc-nav.js"></script>
+        section-divs: true
+        template: templates/article.html

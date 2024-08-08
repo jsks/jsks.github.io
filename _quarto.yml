@@ -1,7 +1,5 @@
 # -*- mode: yaml-ts -*-
-execute:
-    cache: true
 format:
     html:
-        html-math-method: mathjax
+        css: assets/css/sakura.css
         minimal: true
