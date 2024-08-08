@@ -2,3 +2,11 @@
 /**/*_cache/
 /.quarto/
 index.md
+
+*.rds
+*.RData
+*.dta
+
+notes/pois-log_lik/log_lik_files
+notes/pois-log_lik/poisson
+notes/pois-log_lik/poisson_aggregated
