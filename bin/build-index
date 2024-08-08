@@ -1,4 +1,8 @@
 #!/usr/bin/env zsh
+#
+# Builds `index.md` from the generated html files in the given
+# directory.
+###
 
 setopt err_return
 
