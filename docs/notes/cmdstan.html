@@ -3,7 +3,7 @@
   <meta name="generator" content="pandoc">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <meta name="dcterms.date" content="2024-03-15">
-  <title>CmdStan and OCI Images</title>
+  <title>Stan and OCI Images</title>
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
@@ -91,14 +91,17 @@
 </head>
 <body>
         <header id="title-block-header">
-    <h1 class="title">CmdStan and OCI Images</h1>
+    <h1 class="title">Stan and OCI Images</h1>
                   <p class="date">2024-03-15</p>
         </header>
       <div class="container">
             <main class="article">
-        <p><a href="https://mc-stan.org/users/interfaces/cmdstan">CmdStan</a> is a heavy dependency when building docker/OCI images. On the latest <code>debian:testing-slim</code>, it requires 1.3G of space.</p>
+        <p><a href="https://mc-stan.org/users/interfaces/cmdstan">CmdStan</a> is a heavy dependency when building docker/OCI images. On my machine using the latest <code>debian:testing-slim</code>, it requires 1.3G of space.</p>
         <pre class="shell"><code>root@49237339e848:~# du -h -s ~/.cmdstan
 1.3G    /root/.cmdstan</code></pre>
+        <p>Let’s see how small we can make an image to run a Stan model, first whilst using <code>CmdStanR</code> and second by ditching the R interface in favor of a barebones approach.</p>
+        <section id="cmdstanr" class="level2">
+        <h2>CmdStanR</h2>
         <p>The typical compilation pipeline for <code>CmdStan</code> is to go from Stan -&gt; C++ -&gt; Executable Binary. If your Stan model can be pre-compiled as part of the image build, then you can use a <a href="https://docs.docker.com/build/building/multi-stage/">multi-stage build</a> to compile the model binary and copy it into a fresh image without the CmdStan libraries.</p>
         <p>The only caveat is that we need to include any shared libraries that may be linked into the model binary. We can get a list using <code>ldd</code>. In this case I’ll use the example model found in <code>examples/bernoulli/bernoulli.stan</code> in the CmdStan installation directory.</p>
         <pre class="shell"><code>root@49237339e848:~/.cmdstan/cmdstan-2.34.1/examples/bernoulli# ldd bernoulli
@@ -112,43 +115,44 @@
         <p>The output shows that CmdStan links to a locally bundled copy of the Intel TBB library, the exact path depends on where you’ve installed CmdStan. Regardless of whether your model uses TBB, Stan will always link to it and set the <a href="https://en.wikipedia.org/wiki/Rpath">rpath</a> to the local CmdStan directory.</p>
         <p>So, we’ll also copy over <code>libtbb.so.2</code> and I’ll use <a href="https://github.com/NixOS/patchelf"><code>patchelf</code></a> to modify the <code>rpath</code> of the model binary to point to the new directory.</p>
         <p>All together, we end up with the following Containerfile where again I’m using the example <code>bernoulli</code> model included with CmdStan.</p>
-        <div class="sourceCode" id="cb3"><pre class="sourceCode Dockerfile"><code class="sourceCode dockerfile"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> debian:testing-slim <span class="kw">AS</span> base</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">apt-get</span> update <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="ex">apt-get</span> install <span class="at">-y</span> <span class="at">--no-install-recommends</span> build-essential ca-certificates curl patchelf <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> /var/lib/apt/lists/<span class="pp">*</span></span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> base <span class="kw">AS</span> cmdstan</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">ARG</span> CMDSTAN_VERSION=2.34.1</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">curl</span> <span class="at">-LO</span> https://github.com/stan-dev/cmdstan/releases/download/v<span class="va">${CMDSTAN_VERSION}</span>/cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="dt">\</span></span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">mkdir</span> <span class="at">-p</span> cmdstan <span class="dt">\</span></span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">tar</span> <span class="at">-xzf</span> cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="at">--strip</span> 1 <span class="at">-C</span> cmdstan</span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /cmdstan</span>
-<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="fu">make</span> <span class="at">-j</span><span class="va">$(</span><span class="fu">nproc</span><span class="va">)</span> examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="ex">patchelf</span> <span class="at">--set-rpath</span> /usr/local/lib examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">strip</span> <span class="at">-s</span> examples/bernoulli/bernoulli</span>
-<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> base</span>
-<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">apt-get</span> update <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="ex">apt-get</span> install <span class="at">-y</span> <span class="at">--no-install-recommends</span> r-base-core <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
-<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> /var/lib/apt/lists/<span class="pp">*</span></span>
-<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="fu">mkdir</span> /project</span>
-<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /project</span>
-<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">Rscript</span> <span class="at">-e</span> <span class="st">"install.packages('cmdstanr', repos = c('https://mc-stan.org/r-packages/', getOption('repos')))"</span></span>
-<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> analysis.R ./</span>
-<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/examples/bernoulli/bernoulli bernoulli</span>
-<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/stan/lib/stan_math/lib/tbb/libtbb.so.2 /usr/local/lib/libtbb.so.2</span>
-<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a><span class="kw">CMD</span> <span class="ex">Rscript</span> analysis.R</span></code></pre></div>
+        <div class="sourceCode" id="cb3"><pre class="sourceCode Dockerfile"><code class="sourceCode dockerfile"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># -*- mode: dockerfile-ts -*-</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> debian:testing-slim <span class="kw">AS</span> base</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">apt-get</span> update <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="ex">apt-get</span> install <span class="at">-y</span> <span class="at">--no-install-recommends</span> build-essential ca-certificates curl patchelf <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> /var/lib/apt/lists/<span class="pp">*</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> base <span class="kw">AS</span> cmdstan</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="kw">ARG</span> CMDSTAN_VERSION=2.34.1</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">curl</span> <span class="at">-LO</span> https://github.com/stan-dev/cmdstan/releases/download/v<span class="va">${CMDSTAN_VERSION}</span>/cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="dt">\</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">mkdir</span> <span class="at">-p</span> cmdstan <span class="dt">\</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">tar</span> <span class="at">-xzf</span> cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="at">--strip</span> 1 <span class="at">-C</span> cmdstan</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /cmdstan</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="fu">make</span> <span class="at">-j</span><span class="va">$(</span><span class="fu">nproc</span><span class="va">)</span> examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="ex">patchelf</span> <span class="at">--set-rpath</span> /usr/local/lib examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="fu">strip</span> <span class="at">-s</span> examples/bernoulli/bernoulli</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> base</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">apt-get</span> update <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="ex">apt-get</span> install <span class="at">-y</span> <span class="at">--no-install-recommends</span> r-base-core <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> /var/lib/apt/lists/<span class="pp">*</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="fu">mkdir</span> /project</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /project</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">Rscript</span> <span class="at">-e</span> <span class="st">"install.packages('cmdstanr', repos = c('https://mc-stan.org/r-packages/', getOption('repos')))"</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> analysis.R ./</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/examples/bernoulli/bernoulli bernoulli</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/stan/lib/stan_math/lib/tbb/libtbb.so.2 /usr/local/lib/libtbb.so.2</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a><span class="kw">CMD</span> <span class="ex">Rscript</span> analysis.R</span></code></pre></div>
         <p>The <code>analysis.R</code> file that is also being copied into the image is just a basic script that generates some simulated data and runs the pre-compiled model using <code>cmdstanr</code>. However, there are two important things to note. First, we use the <code>exe_file</code> argument to <code>cmdstan_model</code> to specify that our stan model has already been compiled.</p>
-        <p>Second, <code>cmdstanr</code> will error if there is not a local copy of CmdStan available. This is not because we actually need to call out to CmdStan, but rather the function <code>cmdstan_version</code>, which is used for several version checks, relies on <code>cmdstan_path()</code> being properly set. Since we know exactly which version we’ve used to compile our model, we’re going to override the <code>cmdstan_version</code> function within the <code>cmdstanr</code> package namespace to return a constant using the R function <code>assignInNamespace</code>.</p>
+        <p>Second, <code>cmdstanr</code> will error if there is not a local copy of CmdStan available. This is not because we actually need to call out to CmdStan, but rather the function <code>cmdstan_version</code>, which is used for several version checks, relies on <code>cmdstan_path</code> being properly set. Since we know exactly which version we’ve used to compile our model, we’re going to override the <code>cmdstan_version</code> function within the <code>cmdstanr</code> package namespace to return a constant using the R function <code>assignInNamespace</code>.</p>
         <div class="cell">
         <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">#!/usr/bin/env Rscript</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
@@ -166,12 +170,12 @@
 <span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>fit<span class="sc">$</span><span class="fu">summary</span>()</span></code></pre></div>
         </div>
-        <p>Let’s build our image and run a container.</p>
-        <pre class="shell"><code>$ podman build --jobs $(nproc) -t stan .
+        <p>Let’s build our image.</p>
+        <pre class="shell"><code>$ podman build --jobs $(nproc) -t cmdstanr -f Containerfile.cmdstanr .
 $ podman images
 REPOSITORY                TAG           IMAGE ID      CREATED            SIZE
-localhost/stan            latest        e5f6927fe990  3 minutes ago      568 MB
-localhost/full-cmdstan    latest        a3dc48251dde  About an hour ago  1.81 GB
+localhost/cmdstanr        latest        e5f6927fe990  3 minutes ago      568 MB
+localhost/full-cmdstanr   latest        a3dc48251dde  About an hour ago  1.81 GB
 $ podman run stan
 Running MCMC with 4 chains, at most 16 in parallel...
 
@@ -189,7 +193,48 @@ Total execution time: 0.3 seconds.
   &lt;chr&gt;      &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;
 1 lp__     -12.3   -12.0   0.736  0.325  -13.8    -11.8    1.00    1649.
 2 theta      0.227   0.220 0.0871 0.0890   0.0960   0.378  1.00    1402.</code></pre>
-        <p>The <code>full-cmdstan:latest</code> image is also derived from <code>debian:testing-slim</code>; however, it does not use a multi-stage build and instead includes a copy of CmdStan installed through <code>install_cmdstan()</code>. When compared to our slimmed down image, a reduction from 1.81 GB to 568 MB is not too bad.</p>
+        <p>The <code>full-cmdstanr:latest</code> image is also derived from <code>debian:testing-slim</code>; however, it does not use a multi-stage build and instead includes a copy of CmdStan installed through <code>install_cmdstan()</code>. When compared to our slimmed down image, a reduction from 1.81 GB to 568 MB is not too bad.</p>
+        </section>
+        <section id="cmdstan" class="level2">
+        <h2>CmdStan</h2>
+        <p>Let’s keep going. We’ll still use a multi-stage pre-compilation of our Stan model, but this time we’ll switch out the base image from Debian to Google’s <a href="https://github.com/GoogleContainerTools/distroless">distroless</a>. We’ll also ditch <code>cmdstanr</code> in favor of running the <a href="https://mc-stan.org/docs/cmdstan-guide/command_line_options.html">model binary directly</a>.</p>
+        <p>The only hitch is that we need to ensure compatible glibc versions between build stage and the distroless base image, which is based on Debian 12, and we’ll need to serialize our input data to json so that is can be read in by our model binary. For the sake of the example, we’ll just use the bernoulli data distributed directly with CmdStan.</p>
+        <div class="sourceCode" id="cb6"><pre class="sourceCode Dockerfile"><code class="sourceCode dockerfile"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># -*- mode: dockerfile-ts -*-</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Our build stage is essentially the same as before</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> debian:12 as cmdstan</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">apt-get</span> update <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="ex">apt-get</span> install <span class="at">-y</span> <span class="at">--no-install-recommends</span> build-essential ca-certificates curl patchelf <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> /var/lib/apt/lists/<span class="pp">*</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="kw">ARG</span> CMDSTAN_VERSION=2.34.1</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">curl</span> <span class="at">-LO</span> https://github.com/stan-dev/cmdstan/releases/download/v<span class="va">${CMDSTAN_VERSION}</span>/cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="dt">\</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">mkdir</span> <span class="at">-p</span> cmdstan <span class="dt">\</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">&amp;&amp;</span> <span class="fu">tar</span> <span class="at">-xzf</span> cmdstan-<span class="va">${CMDSTAN_VERSION}</span>.tar.gz <span class="at">--strip</span> 1 <span class="at">-C</span> cmdstan</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /cmdstan</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="fu">make</span> <span class="at">-j</span><span class="va">$(</span><span class="fu">nproc</span><span class="va">)</span> examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>    <span class="ex">patchelf</span> <span class="at">--set-rpath</span> / examples/bernoulli/bernoulli <span class="kw">&amp;&amp;</span> <span class="dt">\</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    <span class="fu">strip</span> <span class="at">-s</span> examples/bernoulli/bernoulli</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> gcr.io/distroless/cc-debian12</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/examples/bernoulli/bernoulli.data.json .</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/examples/bernoulli/bernoulli .</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="op">--from=cmdstan</span> /cmdstan/stan/lib/stan_math/lib/tbb/libtbb.so.2 .</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">"/bernoulli"</span>, <span class="st">"sample"</span>, <span class="st">"num_chains=4"</span>, <span class="st">"data"</span>, <span class="st">"file=/bernoulli.data.json"</span>]</span></code></pre></div>
+        <p>Building this image now gets the size down to 29.8 MB.</p>
+        <pre class="shell"><code>$ podman build -t stan-distroless -f Containerfile.distroless .
+$ podman images
+REPOSITORY                    TAG           IMAGE ID      CREATED            SIZE
+localhost/stan-distroless     latest        5c7cb50cf5c9  1 minutes ago      29.8 MB
+localhost/cmdstanr            latest        e5f6927fe990  3 minutes ago      568 MB
+localhost/full-cmdstanr       latest        a3dc48251dde  About an hour ago  1.81 GB</code></pre>
+        </section>
       </main>
     </div>
 
