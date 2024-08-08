@@ -9,5 +9,5 @@ parameters {
 
 model {
   lambda ~ gamma(25, 1);
-  y ~ poisson(lambda);
+  target += poisson_lpmf(y | lambda);
 }

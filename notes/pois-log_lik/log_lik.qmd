@@ -74,13 +74,13 @@ iter <- 100
 
 # I believe `mclapply` uses a process pool, so discard the first
 # mc.cores iterations which will have an associated startup cost.
-burnin <- 10
+burnin <- getOption("mc.cores")
 
 l1 <- mclapply(1:iter, \(i) bench(stan_sample(mod1, data)))
 l2 <- mclapply(1:iter, \(i) bench(stan_sample(mod2, agg_data)))
 
-est <- data.frame(time = c(unlist(l1[burnin+1:iter]),
-                           unlist(l2[burnin+1:iter])),
+est <- data.frame(time = c(unlist(l1[(burnin+1):iter]),
+                           unlist(l2[(burnin+1):iter])),
                   model = c(rep("Unaggregated", iter - burnin),
                             rep("Aggregated", iter - burnin)))
 
