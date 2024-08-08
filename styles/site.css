@@ -1,0 +1,67 @@
+/*
+ * Flexbox article layout - main content + TOC
+ */
+.container {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+main.article {
+  flex: 3;
+  order: 0;
+  max-width: 100%;
+}
+
+aside.sidebar {
+  flex: 1;
+  order: 1;
+  font-size: 1.5rem;
+  top: 2rem;
+  position: sticky;
+  align-self: flex-start;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+aside.sidebar h2 {
+  font-size: 1.5rem;
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+aside a.active {
+  color: #982c61;
+}
+
+aside.sidebar ul {
+  list-style-type: none;
+  margin: 0;
+}
+
+/* Override graphviz inline styling */
+div:not(.cell-output) > figure svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+@media (max-width: 800px) {
+    .container {
+        display: block;
+    }
+
+    aside.sidebar {
+        position: static;
+        margin-top: 2rem;
+    }
+
+    main {
+        max-width: 100%;
+    }
+
+    svg {
+        max-width: 100%;
+        height: auto;
+    }
+}
