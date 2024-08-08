@@ -1,13 +1,19 @@
 SHELL = /usr/bin/zsh -o errreturn
 
-site  ?= docs
-css   ?= assets/sakura.css
+site   ?= docs
+assets := $(site)/assets
+pages  := $(site)/notes
+
+css    := styles/sakura.css styles/site.css
+js     := $(wildcard scripts/*.js)
+static := $(css:styles/%=$(assets)/css/%) $(js:scripts/%=$(assets)/js/%)
 
 notes != print notes/**/*.qmd(.:t)
-html  := $(notes:%.qmd=$(site)/notes/%.html)
+html  := $(notes:%.qmd=$(pages)/%.html)
 
 all: build
 .PHONY: build build-index clean fix-links
+.NOTPARALLEL:
 
 clean:
 	rm -rf $(site)
@@ -15,22 +21,26 @@ clean:
 build: $(html) \
 	build-index \
 	fix-links \
-	$(site)/$(css)
+	$(static)
 
 fix-links: $(html)
-	zsh scripts/fix-links $(site)/notes/
+	zsh bin/fix-links $(pages)
 
 build-index: $(html)
-	zsh scripts/build-index $(site)/notes > index.md
-	quarto render index.md --to html --output-dir $(site) -o index.html --css $(css)
+	zsh bin/build-index $(pages) > index.md
+	quarto render index.md --to html --output-dir $(site) -o index.html
 
-$(site)/assets/%.css: assets/%.css
-	@mkdir -p $(notes)/assets
+$(assets)/css/%.css: styles/%.css
+	@mkdir -p $(@D)
 	cp $< $@
 
-$(site)/notes/%.html: notes/*/%.qmd
-	@mkdir -p $(site)/{notes,assets}
-	quarto render $< --to html --output-dir $(site)/notes -o $(@F) --css ../$(css)
+$(assets)/js/%.js: scripts/%.js
+	@mkdir -p $(@D)
+	cp $< $@
+
+$(pages)/%.html: notes/*/%.qmd
+	@mkdir -p $(@D) $(assets)
+	quarto render $< --profile notes --to html --output-dir $(site)/notes -o $(@F)
 	if [[ -d $(<D)/$(basename $(<F))_files ]]; then \
-		cp -r $(<D)/$(basename $(<F))_files $(site)/assets; \
+		cp -r $(<D)/$(basename $(<F))_files $(assets); \
 	fi
