@@ -1,0 +1,47 @@
+---
+title: "TikZ & system fonts with Quarto html"
+date: "2024-10-23"
+filters:
+    - include-code-files
+---
+
+[knitr](https://yihui.org/knitr/options/#language-engines) has support for executing `tikz` blocks in a Rmarkdown/quarto document and can even output an svg for html using the following block syntax.
+
+````
+```{{R, engine = "tikz"}}
+#| fig-ext: svg
+\begin{tikzpicture}[scale=2]
+\node (A) at (0,0) {Hello};
+\node (B) at (1,0.5) {Entire};
+\node (C) at (1,-0.5) {World};
+\draw[->] (A) -- (B);
+\draw[->] (A) -- (C);
+\end{tikzpicture}
+```
+````
+
+The only issue when using svg output is that we cannot access system fonts using `fontspec`. From [knitr/R/engine.R](https://github.com/yihui/knitr/blob/c8f3a6db45e4382c306cd2eb841b7c552f594de0/R/engine.R) in the `knitr::eng_tikz` function, `knitr` calls `tinytex::latexmk` with the `latex` backend since neither `xelatex` or `lualatex` support `dvi` output, and then feeds the `dvi` output to `dvisvgm` to convert to the final svg product.
+
+```{.r include="engine.R" start-line=368 end-line=390 .numberLines}
+```
+
+Unfortunately, `fontspec` doesn't support `latex`. But, `dvisvgm` does accept `xdv` (extended dvi) input, which we can create using `xelatex`. This isn't currently supported by knitr so either patch the `eng_tikz` function or create a standalone TeX document for each diagram. For example, we could have a file `diagram.tex`.
+
+```{.tex include="diagram.tex"}
+```
+
+Compile to `xdv` by disabling pdf output with xelatex and then convert using `dvisvgm` with the bonus that we can embed our font into the svg.
+
+```.bash
+$ xelatex -no-pdf diagram.tex
+$ dvisvgm -c 3 --font-format=woff2 diagram.xdv
+```
+
+Finally, we can embed this in a markdown document.
+
+````
+![](diagram.svg)
+````
+
+
+{{< include 'diagram.svg' >}}

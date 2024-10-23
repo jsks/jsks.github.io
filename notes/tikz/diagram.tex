@@ -1,0 +1,16 @@
+\documentclass[12pt,tikz,dvisvgm]{standalone}
+
+\usepackage{fontspec}
+\usepackage{tikz}
+
+\setmainfont{Jost-400-Book.otf}
+
+\begin{document}
+\begin{tikzpicture}[scale=2]
+\node (A) at (0,0) {Hello};
+\node (B) at (1,0.5) {Entire};
+\node (C) at (1,-0.5) {World};
+\draw[->] (A) -- (B);
+\draw[->] (A) -- (C);
+\end{tikzpicture}
+\end{document}
