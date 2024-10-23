@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="dcterms.date" content="2024-10-23">
+  <title>TikZ &amp; system fonts with Quarto html</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+      vertical-align: middle;
+    }
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="assets/css/sakura.css">
+  <link rel="stylesheet" href="../assets/css/sakura.css">
+  <link rel="stylesheet" href="../assets/css/site.css">
+  <script src="../assets/js/toc-nav.js"></script>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+    <![endif]-->
+</head>
+<body>
+        <header id="title-block-header">
+    <h1 class="title">TikZ &amp; system fonts with Quarto html</h1>
+                  <p class="date">2024-10-23</p>
+        </header>
+      <div class="container">
+            <main class="article">
+        <p><a href="https://yihui.org/knitr/options/#language-engines">knitr</a> has support for executing <code>tikz</code> blocks in a Rmarkdown/quarto document and can even output an svg for html using the following block syntax.</p>
+        <div class="sourceCode" id="cb1"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="in">```{R, engine = "tikz"}</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="in">#| fig-ext: svg</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="in">\begin{tikzpicture}[scale=2]</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="in">\node (A) at (0,0) {Hello};</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="in">\node (B) at (1,0.5) {Entire};</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="in">\node (C) at (1,-0.5) {World};</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="in">\draw[-&gt;] (A) -- (B);</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="in">\draw[-&gt;] (A) -- (C);</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="in">\end{tikzpicture}</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span></code></pre></div>
+        <p>The only issue when using svg output is that we cannot access system fonts using <code>fontspec</code>. From <a href="https://github.com/yihui/knitr/blob/c8f3a6db45e4382c306cd2eb841b7c552f594de0/R/engine.R">knitr/R/engine.R</a> in the <code>knitr::eng_tikz</code> function, <code>knitr</code> calls <code>tinytex::latexmk</code> with the <code>latex</code> backend since neither <code>xelatex</code> or <code>lualatex</code> support <code>dvi</code> output, and then feeds the <code>dvi</code> output to <code>dvisvgm</code> to convert to the final svg product.</p>
+        <div class="sourceCode" id="cb2" data-startfrom="368"><pre class="sourceCode numberSource r numberLines"><code class="sourceCode r" style="counter-reset: source-line 367;"><span id="cb2-368"><a href="#cb2-368"></a>  ext <span class="ot">=</span> <span class="fu">dev2ext</span>(options)</span>
+<span id="cb2-369"><a href="#cb2-369"></a></span>
+<span id="cb2-370"><a href="#cb2-370"></a>  to_svg <span class="ot">=</span> ext <span class="sc">==</span> <span class="st">'svg'</span></span>
+<span id="cb2-371"><a href="#cb2-371"></a>  outf <span class="ot">=</span> <span class="cf">if</span> (to_svg) tinytex<span class="sc">::</span><span class="fu">latexmk</span>(texf, <span class="st">'latex'</span>) <span class="cf">else</span> tinytex<span class="sc">::</span><span class="fu">latexmk</span>(texf)</span>
+<span id="cb2-372"><a href="#cb2-372"></a></span>
+<span id="cb2-373"><a href="#cb2-373"></a>  fig <span class="ot">=</span> <span class="fu">fig_path</span>(<span class="cf">if</span> (to_svg) <span class="st">'.dvi'</span> <span class="cf">else</span> <span class="st">'.pdf'</span>, options)</span>
+<span id="cb2-374"><a href="#cb2-374"></a>  <span class="fu">dir.create</span>(<span class="fu">dirname</span>(fig), <span class="at">recursive =</span> <span class="cn">TRUE</span>, <span class="at">showWarnings =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb2-375"><a href="#cb2-375"></a>  <span class="fu">file.rename</span>(outf, fig)</span>
+<span id="cb2-376"><a href="#cb2-376"></a></span>
+<span id="cb2-377"><a href="#cb2-377"></a>  fig2 <span class="ot">=</span> <span class="fu">with_ext</span>(fig, ext)</span>
+<span id="cb2-378"><a href="#cb2-378"></a>  <span class="cf">if</span> (to_svg) {</span>
+<span id="cb2-379"><a href="#cb2-379"></a>    <span class="co"># dvisvgm needs to be on the path</span></span>
+<span id="cb2-380"><a href="#cb2-380"></a>    <span class="co"># dvisvgm for windows needs ghostscript bin dir on the path also</span></span>
+<span id="cb2-381"><a href="#cb2-381"></a>    <span class="cf">if</span> (<span class="fu">Sys.which</span>(<span class="st">'dvisvgm'</span>) <span class="sc">==</span> <span class="st">''</span>) tinytex<span class="sc">::</span><span class="fu">tlmgr_install</span>(<span class="st">'dvisvgm'</span>)</span>
+<span id="cb2-382"><a href="#cb2-382"></a>    <span class="cf">if</span> (<span class="fu">system2</span>(<span class="st">'dvisvgm'</span>, <span class="fu">c</span>(</span>
+<span id="cb2-383"><a href="#cb2-383"></a>      options<span class="sc">$</span>engine.opts<span class="sc">$</span>dvisvgm.opts, <span class="st">'-o'</span>, <span class="fu">shQuote</span>(fig2), fig</span>
+<span id="cb2-384"><a href="#cb2-384"></a>    )) <span class="sc">!=</span> <span class="dv">0</span>) <span class="fu">stop</span>(<span class="st">'Failed to compile '</span>, fig, <span class="st">' to '</span>, fig2)</span>
+<span id="cb2-385"><a href="#cb2-385"></a>  } <span class="cf">else</span> {</span>
+<span id="cb2-386"><a href="#cb2-386"></a>    <span class="co"># convert to the desired output-format using magick</span></span>
+<span id="cb2-387"><a href="#cb2-387"></a>    <span class="cf">if</span> (ext <span class="sc">!=</span> <span class="st">'pdf'</span>) magick<span class="sc">::</span><span class="fu">image_write</span>(<span class="fu">do.call</span>(magick<span class="sc">::</span>image_convert, <span class="fu">c</span>(</span>
+<span id="cb2-388"><a href="#cb2-388"></a>      <span class="fu">list</span>(magick<span class="sc">::</span><span class="fu">image_read_pdf</span>(fig), ext), options<span class="sc">$</span>engine.opts<span class="sc">$</span>convert.opts</span>
+<span id="cb2-389"><a href="#cb2-389"></a>    )), fig2)</span>
+<span id="cb2-390"><a href="#cb2-390"></a>  }</span></code></pre></div>
+        <p>Unfortunately, <code>fontspec</code> doesn’t support <code>latex</code>. But, <code>dvisvgm</code> does accept <code>xdv</code> (extended dvi) input, which we can create using <code>xelatex</code>. This isn’t currently supported by knitr so either patch the <code>eng_tikz</code> function or create a standalone TeX document for each diagram. For example, we could have a file <code>diagram.tex</code>.</p>
+        <div class="sourceCode" id="cb3"><pre class="sourceCode tex"><code class="sourceCode latex"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">\documentclass</span>[12pt,tikz,dvisvgm]{<span class="ex">standalone</span>}</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="bu">\usepackage</span>{<span class="ex">fontspec</span>}</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="bu">\usepackage</span>{<span class="ex">tikz</span>}</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="fu">\setmainfont</span>{Jost-400-Book.otf}</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">\begin</span>{<span class="ex">document</span>}</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">\begin</span>{<span class="ex">tikzpicture</span>}[scale=2]</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="fu">\node</span> (A) at (0,0) {Hello};</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="fu">\node</span> (B) at (1,0.5) {Entire};</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="fu">\node</span> (C) at (1,-0.5) {World};</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="fu">\draw</span>[-&gt;] (A) -- (B);</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="fu">\draw</span>[-&gt;] (A) -- (C);</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">\end</span>{<span class="ex">tikzpicture</span>}</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="kw">\end</span>{<span class="ex">document</span>}</span></code></pre></div>
+        <p>Compile to <code>xdv</code> by disabling pdf output with xelatex and then convert using <code>dvisvgm</code> with the bonus that we can embed our font into the svg.</p>
+        <div class="sourceCode" id="cb4"><pre class="sourceCode .bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> xelatex <span class="at">-no-pdf</span> diagram.tex</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> dvisvgm <span class="at">-c</span> 3 <span class="at">--font-format</span><span class="op">=</span>woff2 diagram.xdv</span></code></pre></div>
+        <p>Finally, we can embed this in a markdown document.</p>
+        <pre><code>![](diagram.svg)</code></pre>
+        <!--?xml version='1.0' encoding='UTF-8'?-->
+        <!-- This file was generated by dvisvgm 3.4.1 -->
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="280.691298pt" height="221.423402pt" viewbox="-216.000013 -216.000014 280.691298 221.423402">
+        <style type="text/css">
+        @font-face{font-family:nf0;src:url(data:application/x-font-woff2;base64,d09GMgABAAAAAAOEAAoAAAAABhgAAAM6AAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAgQQKhRCDeQsaAAE2AiQDMAQgBYIOByAbtAQIrgZsNx0LqUa4718hr4tDNijTS/NxPMFB8NDPle//ZDN3SQ6AqbsFYMWSSHd8LaKrZfpp3fdmv9kQCtggH6B2SeoAk9gugbMtfoLc3f/20pYl2BZKhAHaQ/0PwM3bDU4SDwCygOJHmzcsBz4g//5aukELEhrJWON1FW/W1j7IdbN0ihTCjZ/qHEQZXGRNHbMH8fU23oEi/qGBBvI08f5vdXSCKKgwBQtoDRgB2xm3rplCowKbWv0vAISLqPpoNfxXgAQUwJ2COP4llWXAmzMFOyqopotxJphhnkWWWIXtvxJazL0zW8CtW7Vi7ZLFECRNwr0fdwIuB0IAACoAIICUmAjRTaapO5muGktVXU2Ws1nngInhEoYMuloxVF0xpb40ZEwP9s8aA0NdT8nCfy4v1nTxqB3jaNo/Z8kCxuz5ayDIk86WfKWZokLHo/Ld3bwzuG71dP545GjuJGdIfeOGB6aesP+emmArBk9z//85Qt9ut/TftE8YxVbZtnDAvnzV6DNvBt5sVYYwMNAX2/SWWyvpstvadKLuaT0N47qC6oCqcLtQfaC6i7uPd4JGnw94g03XNj4JvtIgrAnvHGlgVmR0n0oHtbY0+wpGWDUlrKKlt7M8G5Fskc0E2eX1BUj7MbFuF+oVi5t3fsPQFrHsvcpSVV9XOpzWXhJTvfbQ7rDw3OBVXVFK/Sl65XybVpkn6adpUB8GpcsMNgRiGxv+h7Krw0ntfdTRPkxHTCthjbR3qkNMC2JRl5hn28WMKE7OU9vdf3gkj1E78e/3SV51lE3TrdcHQktRnzTspc/FnHAgfSDGLwQgwO3eYNQ55X9lUgF4bb/Y46f+XxUCdkgABLxtpHyDAl3lDQiuNSUg02iVr0gr32DIasJT0FXBpoE3lPSFJGK8ztYGCwGY+D00weV0tiAk3EKKnIqCJZIsGNhJGgpup3V8eVIQqj0CneQiqWjkShY8FUsaGp2rddL11y5ZbbGLk8kflCBFq+8jv81fGV8zY10ztRCcpjVrDVDLElZsxFpkkmSdTLAKKzMssUiwFImSKXiVv4imHcHGBOPBKOtJO84aZrDOmmKBYGkSpZuVKRQA) format('woff2');}
+        text.f0 {font-family:nf0;font-size:11.955168px}
+        
+        </style>
+        <g id="page1" transform="matrix(3 0 0 3 0 0)"> <g stroke-miterlimit="10" transform="translate(-54.649496,-35.394979)scale(0.996264,-0.996264)"> <g fill="#000" stroke="#000"> <g stroke-width="0.4"> <g transform="translate(-13.416,-4.62001)"> <g stroke="none" transform="scale(-1.00375,1.00375)translate(-54.649496,-35.394979)scale(-1,-1)"> <g fill="#000"> <g stroke="none"> <text class="f0" x="-54.649496" y="-35.394979">Hello</text> </g> </g> </g> </g> <g transform="translate(42.39749,24.28271)"> <g stroke="none" transform="scale(-1.00375,1.00375)translate(-54.649496,-35.394979)scale(-1,-1)"> <g fill="#000"> <g stroke="none"> <text class="f0" x="-54.649496" y="-35.394979">Entire</text> </g> </g> </g> </g> <g transform="translate(41.3115,-32.92273)"> <g stroke="none" transform="scale(-1.00375,1.00375)translate(-54.649496,-35.394979)scale(-1,-1)"> <g fill="#000"> <g stroke="none"> <text class="f0" x="-54.649496" y="-35.394979">World</text> </g> </g> </g> </g> <path d="M17.61557 8.80536L39.51744 19.75746" fill="none"></path> <g transform="matrix(0.89436,0.4472,-0.4472,0.89436,39.51743,19.75746)"> <g stroke-width="0.31999"> <g stroke-dasharray="none" stroke-dashoffset="0.0"> <g stroke-linecap="round"> <g stroke-linejoin="round"> <path d="M-1.19998 1.59998C-1.09998 .99998 0 .09999 .29999 0C0-.09999-1.09998-.99998-1.19998-1.59998" fill="none"></path> </g> </g> </g> </g> </g> <path d="M17.61557-8.80615L38.31761-19.15746" fill="none"></path> <g transform="matrix(0.89438,-0.4472,0.4472,0.89438,38.3176,-19.15746)"> <g stroke-width="0.31999"> <g stroke-dasharray="none" stroke-dashoffset="0.0"> <g stroke-linecap="round"> <g stroke-linejoin="round"> <path d="M-1.19998 1.59998C-1.09998 .99998 0 .09999 .29999 0C0-.09999-1.09998-.99998-1.19998-1.59998" fill="none"></path> </g> </g> </g> </g> </g> </g> </g> </g> </g>
+        </svg>
+      </main>
+    </div>
+
+
+</body></html>
