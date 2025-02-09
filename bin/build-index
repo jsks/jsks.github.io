@@ -20,7 +20,7 @@ for i in $1/**/*.html; do
     titles[$i]=$(htmlq -t '.title' < $i)
 done
 
-printf "---\ntitle: ~/jsks\n---\n"
+printf "---\ntitle: ~/notes\n---\n"
 order=(${(Oi)dates})
 
 for d in $order; do
