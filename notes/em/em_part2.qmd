@@ -281,6 +281,8 @@ Y & = (X - \bar{X}) P
 #| output: false
 using MultivariateStats
 
+model_input = reshape(pixels, (28*28, 60_000))
+
 # Normally we would use a more robust criterion for selecting D*,
 # but for simplicity we'll just (arbitrarily) set it at 50.
 pca = fit(PCA, model_input, maxoutdim=50)
