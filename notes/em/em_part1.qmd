@@ -20,7 +20,7 @@ Consider an observable random variable, $X$, with latent classification $Z$. We 
 \ell(\theta | X) = \log \left(\int p(X, Z | \theta) \; d\mu(z)\right)
 \end{equation}
 
-Even though we can decompose the joint probability function to $p(X, Z | \theta) = p(Z | \theta) p(X | Z, \theta)$, as we'll see in part 2 when discussing mixture models, this nonetheless tends to lead to an intractable maximization problem since we're marginalizing over the latent variable within the natural logarithm.
+Even though we can decompose the joint probability function to $p(X, Z | \theta) = p(Z | \theta) p(X | Z, \theta)$, as we'll see in [part 2](em_part2.html) when discussing mixture models, this nonetheless tends to lead to an intractable maximization problem since we're marginalizing over the latent variable within the natural logarithm.
 
 Instead, we turn to iteratively maximizing the conditional expectation of the joint log-likelihood with respect to the latent variable $Z$. Put simply, we don't directly observe $Z$, so instead we form a best guess by taking the conditional expectation given our data and our current values of $\theta$, *i.e.* the E-step, and then update $\theta$ by maximizing the resulting equation, the M-step. Rinse and repeat.
 

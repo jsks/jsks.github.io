@@ -61,7 +61,7 @@
         <p><span class="math display">\[\begin{equation}
         \ell(\theta | X) = \log \left(\int p(X, Z | \theta) \; d\mu(z)\right)
         \end{equation}\]</span></p>
-        <p>Even though we can decompose the joint probability function to <span class="math inline">\(p(X, Z | \theta) = p(Z | \theta) p(X | Z, \theta)\)</span>, as we’ll see in part 2 when discussing mixture models, this nonetheless tends to lead to an intractable maximization problem since we’re marginalizing over the latent variable within the natural logarithm.</p>
+        <p>Even though we can decompose the joint probability function to <span class="math inline">\(p(X, Z | \theta) = p(Z | \theta) p(X | Z, \theta)\)</span>, as we’ll see in <a href="em_part2.html">part 2</a> when discussing mixture models, this nonetheless tends to lead to an intractable maximization problem since we’re marginalizing over the latent variable within the natural logarithm.</p>
         <p>Instead, we turn to iteratively maximizing the conditional expectation of the joint log-likelihood with respect to the latent variable <span class="math inline">\(Z\)</span>. Put simply, we don’t directly observe <span class="math inline">\(Z\)</span>, so instead we form a best guess by taking the conditional expectation given our data and our current values of <span class="math inline">\(\theta\)</span>, <em>i.e.</em> the E-step, and then update <span class="math inline">\(\theta\)</span> by maximizing the resulting equation, the M-step. Rinse and repeat.</p>
         <p>More formally, let the objective function be the following:</p>
         <p><span class="math display">\[\begin{equation}
